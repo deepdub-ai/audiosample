@@ -1,9 +1,5 @@
 # audiosample
 
-Here's a revised README.md that includes information about Deepdub:
-
----
-
 # AudioSample
 AudioSample is an optimized numpy-like audio manipulation library, created for researchers, used by developers.
 
