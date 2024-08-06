@@ -49,8 +49,7 @@ out.write("noise_then_silence_then_beep.mp3")
 ```
 
 ### Additional Operations
-
-- **FFT Analysis:** Perform fast Fourier transforms to analyze frequency components.
+- **Resampling:** Fast resampling of audio.
 - **Normalization:** Easily normalize audio levels.
 - **Mixing:** Easily mix multiple audio sources together. Using * sign
 - **Concat** Easily concat audio sources. Using + sign
