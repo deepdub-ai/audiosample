@@ -1,0 +1,9 @@
+.venv
+*.pyc
+*.pyo
+*.pyd
+__pycache__
+*.egg-info/
+dist/
+.ipynb_checkpoints/
+poetry.lock

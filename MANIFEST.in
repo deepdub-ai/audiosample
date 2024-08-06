@@ -1,0 +1,4 @@
+graft audiosample
+include pyproject.toml
+incldue setup.py
+global-exclude *.py[cod]
