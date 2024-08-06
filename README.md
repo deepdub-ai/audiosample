@@ -1,6 +1,5 @@
-# audiosample
-
-# AudioSample
+# AudioSample 
+#### by [deepdub.ai](https://deepdub.ai/)
 AudioSample is an optimized numpy-like audio manipulation library, created for researchers, used by developers.
 
 It is an advanced audio manipulation library designed to provide researchers and developers with efficient, numpy-like tools for audio processing. It supports complex audio operations with ease and offers a familiar syntax for those accustomed to numpy.
@@ -70,7 +69,7 @@ Contributions are welcome! Please follow the [contributing guidelines](CONTRIBUT
 
 ## About Deepdub
 
-AudioSample is developed by [Deepdub](https://deepdub.ai), a company specializing in AI-driven audio solutions. Deepdub focuses on enhancing media experiences through cutting-edge technology, enabling content creators to reach global audiences with high-quality, localized audio.
+AudioSample is developed by [Deepdub](https://deepdub.ai/), a company specializing in AI-driven audio solutions. Deepdub focuses on enhancing media experiences through cutting-edge technology, enabling content creators to reach global audiences with high-quality, localized audio.
 
 ## Support
 
