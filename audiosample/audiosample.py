@@ -168,7 +168,7 @@ class AudioSample:
         self.stream_idx = stream_idx
         self.data_start = -1
         self.len = 0
-        self.unit_sec = unit_sec if unit_sec else self.__class__.unit_sec
+        self.unit_sec = unit_sec if unit_sec is not None else self.__class__.unit_sec
         self.thread_safe = thread_safe
         self.wave_header: Optional[WaveHeader] = None
         self.not_wave_header = None
@@ -570,6 +570,9 @@ class AudioSample:
 
     @property
     def duration(self) -> float:
+        """
+        The duration of the audio data in seconds.
+        """
         return self.len / self.sample_rate
 
     def __getitem__(self, index):
@@ -637,6 +640,13 @@ class AudioSample:
         return new
 
     def clone(self):
+        """
+        Clone the AudioSample object.
+        Returns
+        -------
+        AudioSample
+            A copy of the AudioSample object.
+        """
         return self[:]
     
     def __getstate__(self):
@@ -656,6 +666,10 @@ class AudioSample:
                        force_sample_rate=self.force_sample_rate, force_channels=self.force_channels, force_precision=self.force_precision)
 
     def __len__(self) -> int:
+        """
+        The length of the audio data.
+        The length is measured in samples.
+        """
         return self.len
 
     def read(self) -> bytes:
@@ -808,7 +822,7 @@ class AudioSample:
         return out
 
     @classmethod
-    def from_numpy(cls, numpy_data: np.ndarray, rate=None, precision=DEFAULT_PRECISION, unit_sec=False):
+    def from_numpy(cls, numpy_data: np.ndarray, rate=None, precision=DEFAULT_PRECISION, unit_sec=None):
         """
         Create an AudioSample object from a numpy array.
         Parameters
@@ -831,7 +845,7 @@ class AudioSample:
         assert precision in WAVE_ACCEPTED_PRECISIONS, "Unsupported precision"
         channels = 1 if len(numpy_data.shape) == 1 else numpy_data.shape[0]
         new = cls()
-        new.unit_sec = unit_sec
+        new.unit_sec = unit_sec if unit_sec is not None else cls.unit_sec
         new.thread_safe = True #no file involved.
 
         channel_sample_width = channels * (precision // 8)
@@ -938,7 +952,7 @@ class AudioSample:
         return self.thread_safe
 
     @classmethod
-    def from_wav_data(cls, data, unit_sec=False):
+    def from_wav_data(cls, data, unit_sec=None):
         """
         Create an AudioSample object from a wav file data.
         Parameters
@@ -949,7 +963,7 @@ class AudioSample:
             Whether to manipulate in sample units or seconds units. If `unit_sec` is True, the indexes are treats a floating point seconds. If `unit_sec` is False, the indexes are treated as integer samples.
         """
         new = cls()
-        new.unit_sec = unit_sec
+        new.unit_sec = unit_sec if unit_sec is not None else cls.unit_sec
         new.thread_safe = True
         new.wave_header = new.read_data_header(data)
         new._data = data[new.data_start:][:new.wave_header.data_length]
@@ -958,7 +972,7 @@ class AudioSample:
         return new
 
     @classmethod
-    def from_headerless_data(cls, data: bytes, sample_rate: int, precision=DEFAULT_PRECISION, channels=DEFAULT_CHANNELS, unit_sec=False):
+    def from_headerless_data(cls, data: bytes, sample_rate: int, precision=DEFAULT_PRECISION, channels=DEFAULT_CHANNELS, unit_sec=None):
         """
         Create an AudioSample object from audio data without a header.
         Parameters
@@ -975,7 +989,7 @@ class AudioSample:
             Whether to manipulate in sample units or seconds units. If `unit_sec` is True, the indexes are treats a floating point seconds. If `unit_sec` is False, the indexes are treated as integer samples.
         """
         new = cls()
-        new.unit_sec = unit_sec
+        new.unit_sec = unit_sec if unit_sec is not None else cls.unit_sec
         new._data = data
         new.wave_header = WaveHeader(b"RIFF", WAVE_HEADER_LEN - RIFF_HEADER_LEN + len(data), b"WAVE", b"fmt ", FORMAT_HEADER_FULL_LEN, 1, channels,
                                      sample_rate, sample_rate * channels * (precision // 8), channels * (precision // 8), precision, b"\x00"*24, b"data",
