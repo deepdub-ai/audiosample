@@ -63,6 +63,10 @@ For detailed instructions and API references, type help(AudioSample)
 
 Explore the [examples notebook](examples.ipynb) to see practical applications of AudioSample in action.
 
+## LICENSE
+
+AudioSample is released under the [MIT License](LICENSE).
+
 ## Contributing
 
 Contributions are welcome! Please follow the [contributing guidelines](CONTRIBUTING.md) to submit changes.
