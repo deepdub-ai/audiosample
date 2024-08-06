@@ -4,6 +4,8 @@ AudioSample is an optimized numpy-like audio manipulation library, created for r
 
 It is an advanced audio manipulation library designed to provide researchers and developers with efficient, numpy-like tools for audio processing. It supports complex audio operations with ease and offers a familiar syntax for those accustomed to numpy.
 
+AudioSample is perfect for data loading and ETLs, because its fast and has a low memory footprint due to lazy actions.
+
 ## Features
 
 - **Seamless Audio Operations:** Perform a wide range of audio manipulations, including mixing, filtering, and transformations.
