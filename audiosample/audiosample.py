@@ -672,6 +672,19 @@ class AudioSample:
         """
         return self.len
 
+    def __add__(self, other):
+        """
+            Concatenate two AudioSamples together. The two AudioSamples must have the same sample rate and number of channels.
+        """
+        if not isinstance(other, AudioSample):
+            raise ValueError("Can only add AudioSample to another AudioSample")
+        if self.sample_rate != other.sample_rate:
+            raise ValueError("Cannot add AudioSamples with different sample rates")
+        if self.channels != other.channels:
+            raise ValueError("Cannot add AudioSamples with different number of channels")
+
+        return AudioSample.from_headerless_data(self.read() + other.read(), self.sample_rate, self.precision, self.channels, self.unit_sec)
+
     def read(self) -> bytes:
         if not self.wave_header:
             wav_data, read_start = self._read_wav_with_av()
@@ -1091,3 +1104,4 @@ class AudioSample:
             The path to write the audio sample to. If `audio_path` is a Path or str, the audio sample is written to the specified file. If `audio_path` is a io.BytesIO object, the audio sample is written to the io.BytesIO object.
         """
         self.write_to_file(audio_path)
+

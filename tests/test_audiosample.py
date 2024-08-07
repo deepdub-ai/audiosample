@@ -337,6 +337,7 @@ def test_loop_on_big_file(large_mp3_file):
 
 def pool_fn(_au, t, x):
    _au[x:x+t].as_numpy()
+
 def test_thread_pool(small_mp3_file):
     au = AudioSample(small_mp3_file, thread_safe=True)
     #test in multiple threads, wait for all to finish. this should not crash.
@@ -356,3 +357,24 @@ def test_process_pool(small_mp3_file):
     #test in multiple threads, wait for all to finish. this should not crash.
     with multiprocessing.Pool(4) as pool:
         pool.map(partial(pool_fn, au, int(au.duration/10)), range(0, int(au.duration), int(au.duration/10)))
+
+def test_concat(data_dir, small_wav_file):
+    a = AudioSample(small_wav_file)
+    b = AudioSample(small_wav_file)
+    c = a + b
+    assert c.channels == 2
+    assert c.sample_rate == a.sample_rate
+    assert c.len == a.len + b.len
+    assert c.precision == a.precision
+    assert c.unit_sec == a.unit_sec
+
+def test_concat_fail(data_dir, small_wav_file):
+    a = AudioSample(small_wav_file)
+    b = AudioSample(small_wav_file, force_channels=1)
+    with pytest.raises(ValueError):
+        c = a + b
+def test_concat_fail2(data_dir, small_wav_file):
+    a = AudioSample(small_wav_file)
+    b = AudioSample(small_wav_file, force_sample_rate=a.sample_rate//2)
+    with pytest.raises(ValueError):
+        c = a + b

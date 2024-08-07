@@ -57,6 +57,53 @@ out.write("noise_then_silence_then_beep.mp3")
 - **Playback:** Play audio directly in Jupyter notebooks or from the command line.
 ## Documentation
 
+## Bench Marks
+AudioSample vs. PyDub
+
+### open concatenation and save.
+- longbeep is a 100s long wav file of beep.
+
+```python
+import pydub
+from audiosample import AudioSample
+def test_audiosample():
+    au = AudioSample()
+    for i in range(0, 100):
+        au += AudioSample("longbeep.wav")[50:51]
+    au.write("out.wav")
+
+def test_pydub():
+    au = pydub.AudioSegment.empty()
+    for i in range(0, 100):
+        au += pydub.AudioSegment.from_file("longbeep.wav")[50:51]
+    au.export("out.wav")
+
+%timeit test_audiosample()
+#52.9 ms ± 1.89 ms per loop (mean ± std. dev. of 7 runs, 10 loops each)
+
+%timeit test_pydub()
+#376 ms ± 15.5 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
+```
+
+### AudioSample mix vs. PyDub overlay
+```python
+def f():
+    au = AudioSample().silence(1)
+    for i in range(0, 100):
+        au *= AudioSample("longbeep.wav")[50:51]
+    au.write("out.wav")
+def g():
+    au = pydub.AudioSegment.silent(1)
+    for i in range(0, 100):
+        au = au.overlay(pydub.AudioSegment.from_file("longbeep.wav")[50:51], 0)
+    au.export("out.wav")
+
+In [3]: %timeit f()
+12.7 ms ± 265 μs per loop (mean ± std. dev. of 7 runs, 100 loops each)
+In [4]: %timeit g()
+398 ms ± 26.2 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
+```
+
 For detailed instructions and API references, type help(AudioSample)
 
 ## Examples

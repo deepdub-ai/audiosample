@@ -1,21 +1,6 @@
 import numpy as np
 from audiosample import AudioSample
 
-def add(self, other):
-    """
-        Concatenate two AudioSamples together. The two AudioSamples must have the same sample rate and number of channels.
-    """
-    if not isinstance(other, AudioSample):
-        raise ValueError("Can only add AudioSample to another AudioSample")
-    if self.sample_rate != other.sample_rate:
-        raise ValueError("Cannot add AudioSamples with different sample rates")
-    if self.channels != other.channels:
-        raise ValueError("Cannot add AudioSamples with different number of channels")
-
-    return AudioSample.from_numpy(np.concatenate((self.as_numpy(),other.as_numpy()), axis=-1), self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
-
-AudioSample.register_plugin('__add__', add)
-
 def mul(self, other):
     """
     Mix two AudioSamples together. The two AudioSamples must have the same sample rate and number of channels.
@@ -80,7 +65,7 @@ def mix(self, start, other, fade_duration=None):
         Fading is used to avoid clicks when mixing audio samples.
     """
     assert fade_duration is None or fade_duration >= 0, "Fade in duration must be greater than or equal to 0"
-    assert isinstance(start, int) or self.unit_sec and isinstance(start, float), "Start must be an integer or float with unit_sec=True"
+    assert isinstance(start, int) or (self.unit_sec and isinstance(start, float)), "Start must be an integer or float with unit_sec=True"
     assert isinstance(fade_duration, int) or self.unit_sec and isinstance(fade_duration, float) or fade_duration is None, "Fade in duration must be an integer or float with unit_sec=True or None"
 
     if not isinstance(other, AudioSample):
