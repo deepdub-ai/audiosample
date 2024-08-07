@@ -59,7 +59,8 @@ out.write("noise_then_silence_then_beep.mp3")
 ## Documentation
 
 ## Bench Marks
-AudioSample vs. PyDub
+
+### AudioSample outperforms PyDub
 
 ### open concatenation and save.
 - longbeep is a 100s long wav file of beep.
@@ -88,22 +89,44 @@ def test_pydub():
 
 ### AudioSample mix vs. PyDub overlay
 ```python
-def f():
+def test_audiosample():
     au = AudioSample().silence(1)
     for i in range(0, 100):
         au *= AudioSample("longbeep.wav")[50:51]
     au.write("out.wav")
-def g():
+def test_pydub():
     au = pydub.AudioSegment.silent(1)
     for i in range(0, 100):
         au = au.overlay(pydub.AudioSegment.from_file("longbeep.wav")[50:51], 0)
     au.export("out.wav")
 
-In [3]: %timeit f()
+In [3]: %timeit test_audiosample()
 12.7 ms ± 265 μs per loop (mean ± std. dev. of 7 runs, 100 loops each)
-In [4]: %timeit g()
+In [4]: %timeit test_pydub()
 398 ms ± 26.2 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 ```
+
+### AudioSample outperforms SoundFile
+
+verylongbeep.wav - is a 3200s file. (293M)
+```python
+import soundfile as sf
+from audiosample import AudioSample
+
+def test_audiosample():
+    out = AudioSample("verylongbeep.wav")[1500:1501].as_numpy()
+
+def test_soundfile():
+    with sf.SoundFile("verylongbeep.wav") as f:
+        f.seek(48000*1500)
+        out = f.read(48000)
+
+In [5]: %timeit test_audiosample()
+35.8 μs ± 1.69 μs per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
+In [6]: %timeit test_soundfile()
+140 μs ± 8.89 μs per loop (mean ± std. dev. of 7 runs, 10,000 loops each)
+```
+
 
 For detailed instructions and API references, type help(AudioSample)
 
