@@ -89,7 +89,7 @@ Custom Settings
 if (!window.spectrogram_player) {
 console.log('Spectrogram Player: Initializing');
 window.spectrogram_player = {
-  defaultWidth: 500,
+  defaultWidth: window.innerWidth - 30,
   defaultHeight: 200,
   defaultFreqMin: 0,
   defaultFreqMax: 20,
@@ -126,6 +126,7 @@ window.spectrogram_player = {
     const axisSmoothing = (player.getAttribute('data-axis-smoothing')) ? player.getAttribute('data-axis-smoothing') : this.defaultAxisSmoothing;
 
     const spectrogram = specImg.src;
+    const spectWidth = specImg.naturalWidth;
     //img.parentNode.removeChild(img);
 
 
@@ -142,13 +143,13 @@ window.spectrogram_player = {
       viewer = document.createElement('div');
       viewer.className = "sp-viewer";
 
-      viewer.style.width = width+"px";
-      viewer.style.height = height+"px";
+      viewer.style.width = `${width}px`;
+      viewer.style.height =`${height}px`;
 
       viewer.style.backgroundImage = "url('"+spectrogram+"')";
-      viewer.style.backgroundPosition = width/2+"px";
-      viewer.style.backgroundSize = "auto "+height+"px";
-
+      viewer.style.backgroundPosition = width/4+"px";
+      viewer.style.backgroundSize = `${spectWidth}px ${height}px`;
+      viewer.imgPos = width/4;
       if(axisWidth > 0) {
         let divisions = Math.floor(height/axisDivisionHeight);
         if(axisSmoothing != 0) {
@@ -171,37 +172,33 @@ window.spectrogram_player = {
     player.addEventListener('click', function(e) {
       const viewerStyle = viewer.currentStyle || window.getComputedStyle(viewer, false);
       const img = new Image();
-      //remove url(" and ") from backgroundImage string
       img.src = specImg.src;
-      const spectWidth = viewer.offsetHeight/img.height*img.width;
       const viewerWidth = viewer.offsetWidth;
-      const audioRelativeLocation = ((e.offsetX - viewerWidth/2)/spectWidth);
+      const viewerStart = viewerWidth/4;
+      const audioRelativeLocation = ((e.offsetX - viewerStart)/spectWidth);
       audio.currentTime += audio.duration*audioRelativeLocation;
-      viewer.style.backgroundPosition = viewerWidth/2 - audio.currentTime/audio.duration*spectWidth + "px";
+      viewer.style.backgroundPosition = viewerStart - audio.currentTime/audio.duration*spectWidth + "px";
     });
 
     //on current time change
     audio.addEventListener('timeupdate',  function(e) {
       const viewerStyle = viewer.currentStyle || window.getComputedStyle(viewer, false);
       const img = new Image();
-      //remove url(" and ") from backgroundImage string
       img.src = specImg.src;
-      const spectWidth = viewer.offsetHeight/img.height*img.width;
       const viewerWidth = viewer.offsetWidth;
-      viewer.style.backgroundPosition = viewerWidth/2 - audio.currentTime/audio.duration*spectWidth + "px";
+      const viewerStart = viewerWidth/4;
+      viewer.style.backgroundPosition = viewerStart - audio.currentTime/audio.duration*spectWidth + "px";
     });
   
     //when player starts playing, use requestAnimationFrame to move the spectrogram
     const rafHandler = function () { 
       const viewerWidth = viewer.offsetWidth;
       const viewerStyle = viewer.currentStyle || window.getComputedStyle(viewer, false);
+      const viewerStart = viewerWidth/4;
       const img = new Image();
       img.src = specImg.src;
 
-      //get the width of the spectrogram image based on its scaled size * its native size
-      const spectWidth = viewer.offsetHeight/img.height*img.width;
-
-      viewer.style.backgroundPosition = viewerWidth/2 - audio.currentTime/audio.duration*spectWidth + "px";
+      viewer.style.backgroundPosition = viewerStart - audio.currentTime/audio.duration*spectWidth + "px";
       if(audio.paused)
         return;
       requestAnimationFrame(rafHandler);

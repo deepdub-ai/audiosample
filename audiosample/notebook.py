@@ -3,10 +3,11 @@ from pathlib import Path
 import base64
 from audiosample import AudioSample
 from uuid import uuid4
-
+import html as HTML
 import numpy as np
 
 try:
+    import ipywidgets as widgets
     import IPython.display as ipd
     import librosa
     import librosa.display
@@ -28,7 +29,7 @@ def display(self, autoplay=False):
 
 AudioSample.register_plugin('display', display)
 
-def _mel_html(self, axis=False, player_id="", visible=True):
+def _mel_img(self, axis=False):
     # Generate the mel spectrogram
     S = librosa.feature.melspectrogram(y=self.to_mono().as_numpy(), sr=self.sample_rate, n_mels=128)
 
@@ -36,13 +37,16 @@ def _mel_html(self, axis=False, player_id="", visible=True):
     S_dB = librosa.power_to_db(S, ref=np.max)
 
     # Create a plot
-    fig = plt.figure(figsize=(10, 4))
+    width = min(max(10, self.duration), 200)
+    fig = plt.figure(figsize=(width, 4))
     fig.tight_layout()
     if not axis:
+        plt.axis('off')
+        plt.margins(0)
         ax = plt.gca()
         ax.set_axis_off()
+        ax.set_position([0, 0, 1, 1])
         librosa.display.specshow(S_dB, sr=self.sample_rate, cmap='viridis', ax=ax)
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
     else:
         #display time axis and log frequencies:
         librosa.display.specshow(S_dB, sr=self.sample_rate, cmap='viridis')
@@ -52,82 +56,91 @@ def _mel_html(self, axis=False, player_id="", visible=True):
 
     # Save the plot to a buffer
     buffered = io.BytesIO()
-    plt.savefig(buffered, format='jpeg')
+    plt.savefig(buffered, format='jpeg', bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    return f"""<img data-id="{player_id}" style="{"visibility: hidden; position: absolute;" if not visible else ""}" src="data:image/jpeg;base64,{base64.b64encode(buffered.getvalue()).decode()}" />"""
+    return buffered.getvalue()
 
 
-def _wave_html(self, axis=False, player_id="", visible=True):
-    fig = plt.figure(figsize=(10, 4))
+def _wave_img(self, axis=False):
+    width = min(max(10, self.duration), 200)
+    fig = plt.figure(figsize=(width, 4))
     fig.tight_layout()
     if not axis:
+        plt.axis('off')
+        plt.margins(0)
         ax = plt.gca()
         ax.set_axis_off()
-        librosa.display.waveplot(self.to_mono().as_numpy(), sr=self.sample_rate, ax=ax)
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+        ax.set_position([0, 0, 1, 1])
+        librosa.display.waveshow(self.to_mono().as_numpy(), sr=self.sample_rate, ax=ax)
     else:
-        librosa.display.waveplot(self.as_numpy(), sr=self.sample_rate)
+        librosa.display.waveshow(self.as_numpy(), sr=self.sample_rate)
     buffered = io.BytesIO()
-    plt.savefig(buffered, format='jpeg')
+    plt.savefig(buffered, format='jpeg', bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    return f"""<img data-id="{player_id}" style="{"visibility: hidden; position: absolute;" if not visible else ""}" src="data:image/jpeg;base64,{base64.b64encode(buffered.getvalue()).decode()}" />"""
+    return buffered.getvalue()
 
-def _mel_show(self):
-    if not NOTEBOOK_DISPLAY_SUPPORTED:
-        raise NotImplementedError("display() requires IPython.display and jupyter notebook")
-    return ipd.display(ipd.HTML(_mel_html(self, axis=True)))
+def _player_html(self, image_buffer: io.BytesIO = b"", player: bool = True, axis=True):
+    player_id = str(uuid4())
 
-AudioSample.register_plugin('mel_show', _mel_show)
-
-def _wave_show(self):
-    if not NOTEBOOK_DISPLAY_SUPPORTED:
-        raise NotImplementedError("display() requires IPython.display and jupyter notebook")
-    return ipd.display(ipd.HTML(_wave_html(self, axis=True)))
-
-AudioSample.register_plugin('_wave_show', _wave_show)
-
-
-def _player_html(self):
-    should_init = getattr(AudioSample, 'INITIALIZE_PLAYER_SCRIPT', True)
-    html = ""
-    if True: #should_init:
-        AudioSample.INITIALIZE_PLAYER_SCRIPT = False
-        html += """
-                <style>
-                .sp-viewer {
+    html = "<html>"
+    html += """
+            <head>
+            <style>
+            .sp-viewer {
                 position: relative;
                 background-repeat: no-repeat;
-                }
+            }
 
-                .sp-axis {
+            .sp-axis {
                 position: absolute;
-                }
+            }
 
-                .sp-timeBar {
+            .sp-timeBar {
                 width: 3px;
                 height: 100%;
                 position: absolute;
-                left: 50%;
+                left: 25%;
                 background-color: #555;
-                }
-                </style>
-                """
+            }
+            .sp-image { 
+                visibility: hidden;
+                position: float;
+                height: 0;
+                width: 0;
+            }
+            .sp-vis-image {
+                height: 200px;
+                width: 100%;
+            }
+            .sp-audio {
+                width: 100%;
+            }
+            </style></head>
+            """
+    html += "<body>"
+    html += f"""<div class="spectrogram-player" data-id="{player_id}" data-height="200" data-freq-min="0" data-freq-max="20" {"data-axis-width=0" if not axis else ""}>"""
+    visible = not player
+    html += f"""<img class="{"sp-vis-image" if visible else "sp-image"}" data-id="{player_id}" src="data:image/jpeg;base64,{base64.b64encode(image_buffer).decode()}" />"""
+
+    data = self.as_wav_data()
+    if player:
+        html += f"""<audio class="sp-audio" data-id="{player_id}" controls src="data:audio/wav;base64,{base64.b64encode(data).decode()}" />"""
+    html += """</div>"""
+    if player:
         html += "<script>"+ open(f"{Path(__file__).parent}/notebook_js/spectrogram-player.js").read() + "</script>"
-    return html
+        html += f"""<script>
+                    window.addEventListener('load', function() {{ window.spectrogram_player.init("{player_id}") }})
+            </script>"""
+    html += "</body>"
+    html += "</html>"
 
-def _player_html_init(player_id):
-    return f"""<script>if (document.readyState == 'complete') {{ 
-            window.spectrogram_player.init("{player_id}") 
-        }} else {{
-            document.addEventListener('load', function() {{
-                window.spectrogram_player.init("{player_id}")
-                }})
-        }}
-        </script>"""
+    iframe = f"""<div width="100%"><iframe style='width: 100%; height: 275px; border: none;' srcdoc="{HTML.escape(html)}" /></div>"""
+    return iframe
 
-def mel_display(self, player=True):
+
+def mel(self, player: bool = True):
     """
     Display the audio sample as a mel spectrogram in a jupyter notebook.
     The mel spectrogram is displayed as an image and is clickable to seek to a specific time.
@@ -136,24 +149,50 @@ def mel_display(self, player=True):
     player : bool
         If True, display the audio player with the mel spectrogram. 
         If False, display only the mel spectrogram without the player.
+    """    
+    if not NOTEBOOK_DISPLAY_SUPPORTED:
+        raise NotImplementedError("display() requires IPython.display and jupyter notebook")
+
+    html = _player_html(self, _mel_img(self, axis=False), player, axis=True)
+
+    return widgets.HTML(html)
+
+AudioSample.register_plugin('mel', mel)
+
+def mel_display(self, player: bool = True):
     """
-    if not player:
-        _mel_show(self)
-        return
-    data = self.as_wav_data()
-    player_id = str(uuid4())
-
-    html = _player_html(self)
-    html += f"""<div class="spectrogram-player" data-id="{player_id}" data-width="600" data-height="200" data-freq-min="0" data-freq-max="20">"""
-    html += _mel_html(self, player_id=player_id, visible=False)
-    html += f"""<audio data-id="{player_id}" controls src="data:audio/wav;base64,{base64.b64encode(data).decode()}" />"""
-    html += """</div>"""
-    html += _player_html_init(player_id)
-
-    return ipd.display(ipd.HTML(html))
-
+    Display the audio sample as a mel spectrogram in a jupyter notebook.
+    The mel spectrogram is displayed as an image and is clickable to seek to a specific time.
+    Parameters
+    ----------
+    player : bool
+        If True, display the audio player with the mel spectrogram. 
+        If False, display only the mel spectrogram without the player.
+    """    
+    return ipd.display(mel(self, player))
 
 AudioSample.register_plugin('mel_display', mel_display)
+
+def wave(self, player=True):
+    """
+    Display the audio sample as a waveform in a jupyter notebook.
+    The waveform is displayed as an image and is clickable to seek to a specific time.
+    Parameters
+    ----------
+    player : bool
+        If True, display the audio player with the waveform. 
+        If False, display only the waveform without the player.
+    """
+    if not NOTEBOOK_DISPLAY_SUPPORTED:
+        raise NotImplementedError("display() requires IPython.display and jupyter notebook")
+
+    html = _player_html(self, _wave_img(self, axis=False), player, axis=False)
+
+    return widgets.HTML(html)
+
+
+AudioSample.register_plugin('wave', wave)
+
 
 def wave_display(self, player=True):
     """
@@ -165,21 +204,17 @@ def wave_display(self, player=True):
         If True, display the audio player with the waveform. 
         If False, display only the waveform without the player.
     """
-    if not player:
-        _wave_show(self)
-        return
-    data = self.as_wav_data()
-    player_id = str(uuid4())
-
-    html = _player_html(self)
-    html += f"""<div class="spectrogram-player" data-id="{player_id}" data-width="600" data-height="200" data-axis-width="0" data-freq-min="0" data-freq-max="20">"""
-    html += _wave_html(self, player_id=player_id, visible=False)
-    html += f"""<audio data-id="{player_id}" controls src="data:audio/wav;base64,{base64.b64encode(data).decode()}" />"""
-    html += """</div>"""
-    html += _player_html_init(player_id)
-    
-    return ipd.display(ipd.HTML(html))
-
-
+    return ipd.display(wave(self, player))
 AudioSample.register_plugin('wave_display', wave_display)
+
+
+def _mel_show(self):
+    return mel_display(self, player=False)
+
+AudioSample.register_plugin('mel_show', _mel_show)
+
+def _wave_show(self):
+    return wave_display(self, player=False)
+
+AudioSample.register_plugin('_wave_show', _wave_show)
 
