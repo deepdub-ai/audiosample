@@ -355,6 +355,7 @@ def test_serializable(small_wav_file, small_mp3_file):
 def test_process_pool(small_mp3_file):
     au = AudioSample(small_mp3_file, thread_safe=True)
     #test in multiple threads, wait for all to finish. this should not crash.
+    multiprocessing.set_start_method("spawn", force=True)
     with multiprocessing.Pool(4) as pool:
         pool.map(partial(pool_fn, au, int(au.duration/10)), range(0, int(au.duration), int(au.duration/10)))
 
