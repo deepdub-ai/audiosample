@@ -484,7 +484,9 @@ class AudioSample:
                 pass
 
             del packet
-
+        
+        #flush packets.
+        output_container.mux(output_stream.encode(None))
         output_container.close()
         wav_buffer = None
         if getattr(out_file, 'getvalue', None):
