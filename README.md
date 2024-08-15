@@ -20,11 +20,8 @@ To install AudioSample, use pip:
 
 to install all prerequisites:
 ```bash
-#Mac OS:
-brew install portaudio
 pip install audiosample[all] 
 #linux/WSL:
-apt-get install portaudio19-dev
 pip install audiosample[all] 
 
 #Possible extras are:
@@ -32,6 +29,11 @@ pip install audiosample[all]
 [torch] - add torch
 [tests] - include everything for tests.
 [noui] - install without jupyter support.
+
+#Mac OS:
+brew install portaudio
+#linux/WSL:
+apt-get install portaudio19-dev
 [play] - bare, with ability to play audio in console. (uses pyaudio)
 ```
 

@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='audiosample',
-    version='2.1.7',
+    version='2.1.8',
     packages=find_packages(),
     install_requires=[
         'numpy<=1.23.5',
@@ -18,7 +18,8 @@ setup(
         #allow play.
         'play': ['pyaudio', ],
         #full install for development not testing.
-        'all': ['jupyter', 'IPython', 'librosa', 'matplotlib', 'pyaudio', 'torch>=1.5', 'av'],
+        'all': ['jupyter', 'IPython', 'librosa', 'matplotlib', 'torch>=1.5', 'av'],
+
         #testing dependencies
         'tests': ['pytest', 'jupyter', 'IPython', 'librosa', 'matplotlib', 'scipy', 'pyaudio', 'torch>=1.5', 'av'],
     },
