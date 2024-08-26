@@ -731,6 +731,11 @@ class AudioSample:
             chunk = f.read(st_tmp[-1])
 
         fmt_header = st_tmp + list(struct.unpack(FORMAT_HEADER_CONTENT_STRUCT, chunk[:16]))
+        if fmt_header[5] != 1:
+            # only PCM supported.
+            # extensible format is supported through PyAV.
+            f.seek(0,0)
+            raise NotRIFF()
         if fmt_header[7] not in WAVE_ACCEPTED_PRECISIONS:
             f.seek(0,0)
             raise NotRIFF()
