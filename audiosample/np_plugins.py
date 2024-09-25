@@ -1,5 +1,7 @@
 import numpy as np
 from audiosample import AudioSample
+from logging import getLogger
+logger = getLogger(__name__)
 
 def mul(self, other):
     """
@@ -51,7 +53,7 @@ def gain(self, gain_in_db, pre_normalize=False):
 
 AudioSample.register_plugin('gain', gain)
 
-def mix(self, start, other, fade_duration=None):
+def mix(self, start, other, fade_duration=None, clipping_strategy=None):
     """
     Mix two AudioSamples together. The two AudioSamples must have the same sample rate and number of channels.
     Parameters:
@@ -63,6 +65,14 @@ def mix(self, start, other, fade_duration=None):
     fade_duration: int or float or None
         The duration in samples or seconds, within the second AudioSample, over which the mix will fade in and out. If None, no fade is applied.
         Fading is used to avoid clicks when mixing audio samples.
+    clipping_strategy: None or str
+        The strategy to use when clipping occurs. The following strategies are available:
+        - None: Clipping is not handled.
+        - 'norm': Normalize post-mixing to avoid clipping.
+        - 'normif': Normalize post-mixing only if clipping occurs.
+        - 'warn': Warn if there is clipping
+        - 'raise': Raise an exception if there is clipping
+
     """
     assert fade_duration is None or fade_duration >= 0, "Fade in duration must be greater than or equal to 0"
     assert isinstance(start, int) or (self.unit_sec and isinstance(start, float)), "Start must be an integer or float with unit_sec=True"
@@ -91,6 +101,18 @@ def mix(self, start, other, fade_duration=None):
         to_mix_in[..., :fade_duration] *= np.linspace(0, 1, fade_duration)
         to_mix_in[..., -fade_duration:] *= np.linspace(1, 0, fade_duration)
     out[..., start:start + len(other)] += to_mix_in
+    if clipping_strategy:
+        if clipping_strategy == 'norm':
+            out = out / np.max(np.abs(out))
+        elif clipping_strategy == 'normif':
+            if np.max(np.abs(out)) > 1:
+                out = out / np.max(np.abs(out))
+        elif clipping_strategy == 'warn':
+            if np.max(np.abs(out)) > 1:
+                logger.warning("Clipping occurred during mixing")
+        elif clipping_strategy == 'raise':
+            if np.max(np.abs(out)) > 1:
+                raise ValueError("Clipping occurred during mixing")
     return AudioSample.from_numpy(out, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
 
 AudioSample.register_plugin('mix', mix)
