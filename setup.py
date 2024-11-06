@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='audiosample',
-    version='2.1.10',
+    version='2.1.11',
     packages=find_packages(),
     install_requires=[
         'numpy<=1.23.5',

@@ -144,3 +144,273 @@ def fadeout(self, duration):
     return AudioSample.from_numpy(n, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
 
 AudioSample.register_plugin('fadeout', fadeout)
+
+def stretch(self, tempo):
+    """
+    Time-stretch an audio signal without changing its pitch using the WSOLA algorithm.
+    Adjusted to handle multi-channel input where the first dimension is channels.
+    
+    Parameters:
+    - tempo: float
+        The desired tempo change factor (e.g., 1.5 for 50% faster).
+    
+    Returns:
+    - output_audio: AudioSample
+        The time-stretched audio signal as a NumPy array with the same shape as input.
+    """
+    assert tempo > 0, "Tempo must be greater than 0"
+    audio = self.as_numpy()
+    sample_rate = self.sample_rate
+    audio = self.as_numpy()
+    sample_rate = self.sample_rate
+    # Ensure audio is at least 2D
+    if audio.ndim == 1:
+        audio = audio[np.newaxis, :]
+    channels, num_samples = audio.shape
+    
+    # Parameters (milliseconds)
+    overlap_ms = 12     # Length of the overlapping window
+    
+    # Adjust sequence_ms and seek_window_ms based on tempo
+    AUTOSEQ_TEMPO_LOW = 0.5
+    AUTOSEQ_TEMPO_TOP = 2.0
+
+    AUTOSEQ_AT_MIN = 125.0
+    AUTOSEQ_AT_MAX = 50.0
+    AUTOSEQ_K = (AUTOSEQ_AT_MAX - AUTOSEQ_AT_MIN) / (AUTOSEQ_TEMPO_TOP - AUTOSEQ_TEMPO_LOW)
+    AUTOSEQ_C = AUTOSEQ_AT_MIN - (AUTOSEQ_K) * (AUTOSEQ_TEMPO_LOW)
+
+    AUTOSEEK_AT_MIN = 25.0
+    AUTOSEEK_AT_MAX = 15.0
+    AUTOSEEK_K = (AUTOSEEK_AT_MAX - AUTOSEEK_AT_MIN) / (AUTOSEQ_TEMPO_TOP - AUTOSEQ_TEMPO_LOW)
+    AUTOSEEK_C = AUTOSEEK_AT_MIN - (AUTOSEEK_K) * (AUTOSEQ_TEMPO_LOW)
+
+    def check_limits(x, mi, ma):
+        return max(mi, min(x, ma))
+
+    seq = AUTOSEQ_C + AUTOSEQ_K * tempo
+    seq = check_limits(seq, AUTOSEQ_AT_MAX, AUTOSEQ_AT_MIN)
+    sequence_ms = int(seq + 0.5)
+
+    seek = AUTOSEEK_C + AUTOSEEK_K * tempo
+    seek = check_limits(seek, AUTOSEEK_AT_MAX, AUTOSEEK_AT_MIN)
+    seek_window_ms = int(seek + 0.5)
+
+    # Convert to samples
+    sequence_length = int(sample_rate * sequence_ms / 1000)
+    seek_window_length = int(sample_rate * seek_window_ms / 1000)
+    overlap_length = int(sample_rate * overlap_ms / 1000)
+
+    # Ensure lengths are even and positive
+    sequence_length = max(2, sequence_length - (sequence_length % 2))
+    seek_window_length = max(2, seek_window_length - (seek_window_length % 2))
+    overlap_length = max(2, overlap_length - (overlap_length % 2))
+
+    # Ensure seek_window_length >= 2 * overlap_length
+    if seek_window_length < 2 * overlap_length:
+        seek_window_length = 2 * overlap_length
+
+    # Initialize buffers
+    input_buffer = audio.copy()
+    output_buffer = []
+    p_mid_buffer = np.zeros((channels, overlap_length), dtype=np.float32)
+
+    # Calculate nominal skip and sample requirement
+    nominal_skip = tempo * (seek_window_length - overlap_length)
+    position = 0
+    skip_fract = 0.0
+
+    # Precompute fade-in and fade-out envelopes
+    fade_in = np.linspace(0, 1, overlap_length)[np.newaxis, :]
+    fade_out = 1.0 - fade_in
+
+    # Main processing loop
+    while position + seek_window_length <= num_samples:
+        ref_pos = position
+
+        # Extract seek window
+        seek_window = input_buffer[:, ref_pos:ref_pos + seek_window_length]
+
+        # Vectorize cross-correlation over all possible offsets
+        offsets = np.arange(0, seek_window_length - overlap_length + 1)
+        num_offsets = offsets.shape[0]
+
+        # Extract all possible segments for overlap
+        segments_shape = (channels, num_offsets, overlap_length)
+        segments_strides = (
+            input_buffer.strides[0],
+            input_buffer.strides[1],
+            input_buffer.strides[1]
+        )
+        segments = np.lib.stride_tricks.as_strided(
+            seek_window,
+            shape=segments_shape,
+            strides=segments_strides
+        )
+
+        # Flatten segments and p_mid_buffer for computation
+        segments_flat = segments.reshape(channels, num_offsets, overlap_length)
+        p_mid_buffer_flat = p_mid_buffer
+
+        # Compute cross-correlation for all offsets
+        corr = np.einsum('cno,co->n', segments_flat, p_mid_buffer_flat)
+        norm_seg = np.sqrt(np.sum(segments_flat ** 2, axis=(0, 2)))
+        norm_mid = np.sqrt(np.sum(p_mid_buffer_flat ** 2))
+
+        # Avoid division by zero
+        denom = norm_mid * norm_seg
+        denom[denom == 0] = 1e-9
+
+        correlations = corr / denom
+
+        # Apply heuristic weighting
+        tmp = (2 * offsets - (seek_window_length - overlap_length)) / (seek_window_length - overlap_length)
+        weight = 1.0 - 0.25 * tmp ** 2
+        correlations *= weight
+
+        # Find best offset
+        best_index = np.argmax(correlations)
+        best_offset = offsets[best_index]
+
+        # Overlap and add
+        offset = best_offset
+        overlap_segment = input_buffer[:, ref_pos + offset:ref_pos + offset + overlap_length]
+
+        # Ensure overlap_segment has correct shape
+        if overlap_segment.shape[1] < overlap_length:
+            pad_length = overlap_length - overlap_segment.shape[1]
+            padding = np.zeros((channels, pad_length), dtype=overlap_segment.dtype)
+            overlap_segment = np.hstack([overlap_segment, padding])
+
+        overlapped = p_mid_buffer * fade_out + overlap_segment * fade_in
+        output_buffer.append(overlapped)
+
+        # Calculate non-overlapping part length
+        nominal_skip_int = int(nominal_skip + 0.5)
+        non_overlap_length = seek_window_length - overlap_length - best_offset - overlap_length
+        if non_overlap_length < 0:
+            non_overlap_length = 0
+
+        # Add non-overlapping part
+        start = ref_pos + best_offset + overlap_length
+        end = start + non_overlap_length
+        if end > num_samples:
+            end = num_samples
+        if start < end:
+            output_buffer.append(input_buffer[:, start:end])
+
+        # Update p_mid_buffer
+        position_increment = best_offset + overlap_length + non_overlap_length
+        position += position_increment
+
+        # Update p_mid_buffer for next iteration
+        p_mid_buffer = input_buffer[:, position:position + overlap_length]
+        if p_mid_buffer.shape[1] < overlap_length:
+            pad_length = overlap_length - p_mid_buffer.shape[1]
+            padding = np.zeros((channels, pad_length), dtype=p_mid_buffer.dtype)
+            p_mid_buffer = np.hstack([p_mid_buffer, padding])
+
+        # Adjust position based on tempo
+        skip_fract += nominal_skip - position_increment
+        if skip_fract >= 1.0:
+            position += int(skip_fract)
+            skip_fract -= int(skip_fract)
+        elif skip_fract <= -1.0:
+            position -= int(-skip_fract)
+            skip_fract += int(-skip_fract)
+
+        # Prevent infinite loops
+        if position_increment == 0:
+            position += 1  # Ensure progress
+
+    # Append any remaining samples
+    if position < num_samples:
+        output_buffer.append(input_buffer[:, position:])
+
+    # Concatenate output along samples axis
+    output_audio = np.hstack(output_buffer)
+    output_audio = np.clip(output_audio, -1.0, 1.0)
+
+    return AudioSample.from_numpy(output_audio, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
+
+AudioSample.register_plugin('stretch', stretch)
+
+def to_robot(self, modulation_frequency=50, pitch_shift_semitones=-5):
+    """
+    Apply a robot voice effect to the audio sample by modulating the signal with a sine wave and shifting the pitch.
+    Parameters:
+    - modulation_frequency: int
+        The frequency of the sine wave modulation.
+    - pitch_shift_semitones: int
+        The pitch shift in semitones.
+    Returns:
+    - output_audio: AudioSample
+        The audio signal with the robot voice effect.
+    """
+    def resample(x, num):
+        """
+        Resample a signal to a different number of samples using the Fourier method.
+    
+        Parameters:
+        x : array_like
+            The original signal to be resampled.
+        num : int
+            The number of samples in the resampled signal.
+    
+        Returns:
+        y : ndarray
+            The resampled signal.
+        """
+        N = len(x)
+        X = np.fft.fft(x)
+        X = np.fft.fftshift(X)
+    
+        # Calculate the resampling factor
+        ratio = float(num) / N
+    
+        if num < N:
+            # Truncate the spectrum
+            start = (N - num) // 2
+            X_resampled = X[start:start+num]
+        else:
+            # Pad the spectrum with zeros
+            pad_size = num - N
+            pad_left = pad_size // 2
+            pad_right = pad_size - pad_left
+            X_resampled = np.pad(X, (pad_left, pad_right), mode='constant', constant_values=0)
+    
+        X_resampled = np.fft.ifftshift(X_resampled)
+        y = np.fft.ifft(X_resampled) * ratio
+        return y.real
+
+    def apply_sine_modulation(data, rate, frequency=10):
+        t = np.arange(data.shape[-1]) / rate
+        modulation = np.sin(2 * np.pi * frequency * t)
+        return data * modulation
+    
+    def pitch_shift(data, rate, shift):
+        factor = 2 ** (shift / 12.0)
+        num_samples = int(data.shape[-1] / factor)
+        resampled_data = resample(data, num_samples)
+        return resample(resampled_data, len(data))
+    
+    assert self.channels == 1, "Robot voice effect only supported for mono audio"
+    assert modulation_frequency > 0, "Modulation frequency must be greater than 0"
+
+    rate, data = self.sample_rate, self.as_numpy()
+    # Normalize data
+    max_val = np.max(np.abs(data))
+    data = data / max_val
+    
+    # Apply sine modulation
+    modulated_data = apply_sine_modulation(data, rate, modulation_frequency)
+    
+    # Apply pitch shift
+    shifted_data = pitch_shift(modulated_data, rate, pitch_shift_semitones)
+    
+    # Normalize the data back to the original range
+    shifted_data = shifted_data / np.max(np.abs(shifted_data)) * max_val
+
+    return AudioSample.from_numpy(shifted_data, rate=self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
+
+AudioSample.register_plugin('to_robot', to_robot)
