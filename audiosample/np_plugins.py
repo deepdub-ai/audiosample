@@ -1,3 +1,4 @@
+from typing import Union
 import numpy as np
 from audiosample import AudioSample
 from logging import getLogger
@@ -334,6 +335,32 @@ def stretch(self, tempo):
     return AudioSample.from_numpy(output_audio, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
 
 AudioSample.register_plugin('stretch', stretch)
+
+def pan(self, pan: Union[float, str]):
+    """
+    Apply a stereo panning effect to the audio sample.
+    Parameters:
+    - pan: float or str
+        The pan value between -1 (left) and 1 (right). Alternatively, 'left' or 'right' can be used.
+    """
+    if isinstance(pan, str):
+        if pan == 'left':
+            pan = -1
+        elif pan == 'right':
+            pan = 1
+        else:
+            raise ValueError("Invalid pan value. Must be a float between -1 and 1 or 'left' or 'right'")
+    assert -1 <= pan <= 1, "Pan value must be between -1 and 1"
+    assert self.channels == 2, "Stereo panning only supported for stereo audio"
+    pan = (pan + 1) / 2
+    left = np.sqrt(1 - pan)
+    right = np.sqrt(pan)
+    n = self.as_numpy()
+    n[0] *= left
+    n[1] *= right
+    return AudioSample.from_numpy(n, rate=self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
+
+AudioSample.register_plugin('pan', pan)
 
 def to_robot(self, modulation_frequency=50, pitch_shift_semitones=-5):
     """
