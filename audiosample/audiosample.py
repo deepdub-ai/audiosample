@@ -177,6 +177,8 @@ class AudioSample:
         self.force_sample_rate = None
         self.force_channels = None
         self.force_precision = None
+        self.layout_possibilities = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
+            
         self.f = None
 
         if f is not None:
@@ -304,7 +306,7 @@ class AudioSample:
             return "pcm_s16le"
         elif "ogg" in format_name or "opus" in format_name:
             return "libvorbis"
-        elif "mp4" in format_name or "ipod" in format_name or "m4a" in format_name or "mov" in format_name or "m4b" in format_name:
+        elif "mp4" in format_name or "ipod" in format_name or "m4a" in format_name or "mov" in format_name or "m4b" in format_name or "ts" in format_name:
             return "aac"
         return format_name
 
@@ -316,21 +318,28 @@ class AudioSample:
                 return "mp4"
             if "mov" in format_name:
                 return "mov"
+            if "ts" in format_name:
+                return "mpegts"
             return format_name
         def get_format_name_from_user_given_name(format_name):
             if "m4a" in format_name:
                 return "ipod"
+            if "ts" in format_name:
+                return "mpegts"
             return format_name
                     
         if not out_file:
             out_file = io.BytesIO()
+        seek_to_0_once = False
         if not self.f:
             self.f = io.BytesIO(self.as_wav_data())
             self.f.seek(0,0)
             self._create_input_container()
+            seek_to_0_once = True
         elif not self.input_container:
             self.f.seek(0,0)
             self._create_input_container()
+            seek_to_0_once = True
 
         if self.__class__._get_codec_from_format_name(force_out_format) != self.__class__._get_codec_from_format_name(self.format):
             no_encode = False
@@ -342,15 +351,21 @@ class AudioSample:
         input_stream = self.input_container.streams.audio[self.stream_idx]
         start_sec = self.start / self.sample_rate
         stop_sec = (self.start + self.len) / self.sample_rate
-        
+
         start_time = 0 if input_stream.start_time is None else input_stream.start_time*input_stream.time_base
-        self.input_container.seek(int(max((start_sec-0.5), start_time)/input_stream.time_base), 
-                                  stream=input_stream)
+        seek_to = int(max((start_sec-0.5), start_time)/input_stream.time_base)
+        if seek_to == start_time and start_time == 0:
+            if not seek_to_0_once:
+                self.f.seek(0,0)
+                self._create_input_container()
+        else:
+            self.input_container.seek(seek_to, 
+                                stream=input_stream)
+        
         if not no_encode:
             output_stream = output_container.add_stream(self.__class__._get_codec_from_format_name(out_format), 
-                                    rate=self.sample_rate)
+                                    rate=self.sample_rate, layout=self.layout_possibilities[self.channels])
 
-            output_stream.channels = self.channels
             codec = output_stream.codec_context
             frame_ts_start = None
             for packet in self.input_container.demux(input_stream):
@@ -377,7 +392,7 @@ class AudioSample:
                         frame.pts = (frame.dts - frame_ts_start)
 
                         try:
-                            encoded_frame = codec.encode(frame)
+                            encoded_packets = codec.encode(frame)
                         except ValueError as ve:
                             logger.warning(f"Received ValueError {ve=} restarting codec.")
                             output_stream.codec_context.close()
@@ -387,9 +402,10 @@ class AudioSample:
                             _codec.format = codec.format
                             del codec
                             codec = _codec
-                            encoded_frame = codec.encode(frame)
-                        output_container.mux(encoded_frame)
-                        del encoded_frame
+                            encoded_packets = codec.encode(frame)
+                        if encoded_packets:
+                            output_container.mux(encoded_packets)                            
+                        del encoded_packets
                         del frame
                 except av.error.InvalidDataError:                                                                                                                                                                                           
                     logger.warning(f"Invalid packet found while processing {self.f}")
@@ -399,10 +415,9 @@ class AudioSample:
                     pass
             del codec
             del packet
-            #flush remaining frames.
             output_container.mux(output_stream.encode(None))
         else:
-            output_stream = output_container.add_stream(template=input_stream)
+            output_stream = output_container.add_stream(template=input_stream)            
             packet_ts_start = None
             for packet in self.input_container.demux(input_stream):
                 if packet.dts is None:
@@ -413,10 +428,12 @@ class AudioSample:
                     break
                 if packet_ts_start is None:
                     packet_ts_start = packet.dts
-                pkt = av.packet.Packet(packet.to_bytes())
+                if packet.stream_index != 0:
+                    pkt = av.packet.Packet(bytes(packet))
+                else:
+                    pkt = packet
                 pkt.dts = pkt.pts = (packet.dts - packet_ts_start)
                 output_container.mux(pkt)
-                del pkt
                 del packet
 
         output_container.close()
@@ -434,6 +451,11 @@ class AudioSample:
             raise ValueError("No data in audiosample provided.")
         if not out_file:
             out_file = io.BytesIO()
+        seek_to_0_once = False    
+        if not self.input_container:
+            self.f.seek(0,0)
+            self._create_input_container()
+            seek_to_0_once = True
 
         output_container = av.open(out_file, format='wav', mode='w', metadata_errors="ignore")
         input_stream = self.input_container.streams.audio[self.stream_idx]
@@ -442,11 +464,17 @@ class AudioSample:
 
         #first frame decoded is always 0.
         start_time = 0 if input_stream.start_time is None else input_stream.start_time*input_stream.time_base
-        self.input_container.seek(int(max((start_sec-0.5), start_time)/input_stream.time_base), 
-                                  stream=input_stream)
+        seek_to = int(max((start_sec-0.5), start_time)/input_stream.time_base)
+        if seek_to == start_time and start_time == 0:
+            if not seek_to_0_once:
+                self.f.seek(0,0)
+                self._create_input_container()
+        else:
+            self.input_container.seek(seek_to, 
+                                stream=input_stream)
 
-        output_stream = output_container.add_stream(PRECISION_CODECS[self.not_wave_header.precision], rate=self.not_wave_header.sample_rate)
-        output_stream.channels = self.not_wave_header.channels
+        output_stream = output_container.add_stream(PRECISION_CODECS[self.not_wave_header.precision], rate=self.not_wave_header.sample_rate, layout=self.layout_possibilities[self.not_wave_header.channels])
+        # output_stream.channels = self.not_wave_header.channels
         codec = output_stream.codec_context
         actual_start_due_to_frame = -1
         for packet in self.input_container.demux(input_stream):
@@ -458,7 +486,6 @@ class AudioSample:
                         pass
                     continue
                 for frame in packet.decode():
-
                     if actual_start_due_to_frame == -1:
                         actual_start_due_to_frame = frame.dts*input_stream.time_base
                     try:
@@ -1070,7 +1097,7 @@ class AudioSample:
         """
 
         logger.info(f"Writing audio sample: {audio_path}")
-        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov"]
+        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov", "ts"]
         #TODO: support writing directly to file object.
         if force_out_format and not force_out_format in ACCEPTED_SUFFIXES:
             raise NotImplementedError("Not supported output format")

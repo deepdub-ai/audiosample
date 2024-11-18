@@ -218,6 +218,7 @@ def test_video_mov(data_dir, video_file_with_audio_in_stream_index_1):
         au[0:0.5].write_to_file(f"{data_dir}/tmp-mov-file.mov", no_encode=False)
 
 
+@pytest.mark.slow
 def test_as_tensor(data_dir, small_mp3_file):
     au = AudioSample(open(small_mp3_file, "rb"))
     tau = au.as_tensor()
