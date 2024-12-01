@@ -337,7 +337,7 @@ class AudioSample:
             self._create_input_container()
             seek_to_0_once = True
         elif not self.input_container:
-            self.f.seek(0,0)
+            self.f.seek(0,0) if hasattr(self.f, 'seek') else None
             self._create_input_container()
             seek_to_0_once = True
 
@@ -453,7 +453,7 @@ class AudioSample:
             out_file = io.BytesIO()
         seek_to_0_once = False    
         if not self.input_container:
-            self.f.seek(0,0)
+            self.f.seek(0,0) if hasattr(self.f, 'seek') else None
             self._create_input_container()
             seek_to_0_once = True
 
@@ -467,7 +467,7 @@ class AudioSample:
         seek_to = int(max((start_sec-0.5), start_time)/input_stream.time_base)
         if seek_to == start_time and start_time == 0:
             if not seek_to_0_once:
-                self.f.seek(0,0)
+                self.f.seek(0,0) if hasattr(self.f, 'seek') else None
                 self._create_input_container()
         else:
             self.input_container.seek(seek_to, 
@@ -661,8 +661,8 @@ class AudioSample:
                 
             if new.input_container:
                 new.input_container = None
-                if isinstance(new.f, str):
-                    new.f = open(new.f.name, 'rb')
+                if isinstance(new.f, str) and not (new.f.startswith("https://") or new.f.startswith("http://")):
+                    new.f = open(new.f, 'rb')
                 new._open_with_av()
                 new.start = real_start
                 new.len = index_stop - index_start

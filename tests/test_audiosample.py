@@ -27,11 +27,11 @@ def short_mp3_file(data_dir, small_mp3_file):
 
 @pytest.fixture(scope='session')
 def small_opus_file(data_dir):
-    return os.path.abspath(f'{__file__}/../assets/audio_files/test-small.opus')
+    return os.path.abspath(f'{os.path.dirname(__file__)}/assets/audio_files/test-small.opus')
 
 @pytest.fixture(scope='session')
 def small_24bit_wav_file(data_dir):
-    return os.path.abspath(f'{__file__}/../assets/audio_files/test-24bit.wav')
+    return os.path.abspath(f'{os.path.dirname(__file__)}/assets/audio_files/test-24bit.wav')
 
 @pytest.fixture(scope='session')
 def dual_stream_mp4_file(data_dir, small_mp3_file):
@@ -380,3 +380,35 @@ def test_concat_fail2(data_dir, small_wav_file):
     b = AudioSample(small_wav_file, force_sample_rate=a.sample_rate//2)
     with pytest.raises(ValueError):
         c = a + b
+
+def test_http_stream(small_mp3_file):
+    #server small mp3 file in a thread
+    au = AudioSample(small_mp3_file)
+    au.as_numpy()
+    import http.server
+    import threading
+    import socketserver
+    PORT = 54321
+    #allow address reuse
+    os.chdir(os.path.dirname(small_mp3_file))
+    Handler = http.server.SimpleHTTPRequestHandler
+    Handler.extensions_map.update({
+        ".mp3": "audio/mpeg",
+    })
+    #set default dir 
+    socketserver.TCPServer.allow_reuse_address = True
+    httpd = socketserver.TCPServer(("localhost", PORT), Handler)
+    httpd_thread = threading.Thread(target=httpd.serve_forever)
+    httpd_thread.daemon = True
+    httpd_thread.start()
+    time.sleep(0.1)
+    au = AudioSample(f"http://localhost:{PORT}/{os.path.basename(small_mp3_file)}", thread_safe=True)
+    nau = au.as_numpy()
+    au = AudioSample(f"http://localhost:{PORT}/{os.path.basename(small_mp3_file)}", thread_safe=True)
+    au2 = AudioSample(force_channels=2, thread_safe=True)
+    au2 += au[0:1]
+    nau = au2.as_numpy(mono_1d=False)
+    httpd.shutdown()
+    httpd.server_close()
+    httpd_thread.join()
+
