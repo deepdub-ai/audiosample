@@ -120,7 +120,7 @@ def _player_html(self, image_buffer: io.BytesIO = b"", player: bool = True, axis
             </style></head>
             """
     html += "<body>"
-    html += f"""<div class="spectrogram-player" data-id="{player_id}" data-height="200" data-freq-min="0" data-freq-max="20" {"data-axis-width=0" if not axis else ""}>"""
+    html += f"""<div class="spectrogram-player" data-id="{player_id}" data-height="200" data-freq-min="0" data-freq-max="{self.sample_rate}" {"data-axis-width=0" if not axis else ""}>"""
     visible = not player
     html += f"""<img class="{"sp-vis-image" if visible else "sp-image"}" data-id="{player_id}" src="data:image/jpeg;base64,{base64.b64encode(image_buffer).decode()}" />"""
 

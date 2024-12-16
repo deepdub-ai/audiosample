@@ -44,7 +44,7 @@ def resample(self, sample_rate):
     """
     if self.sample_rate == sample_rate:
         return self
-    if not getattr(self, 'data', None):
+    if not getattr(self, '_data', None):
         self.f.seek(0,0)
         new = self.__class__(self.f, force_read_format=self.force_read_format, force_sample_rate=sample_rate, 
                              force_channels=self.channels, force_precision=self.force_precision, 
