@@ -14,6 +14,15 @@ AudioSample is perfect for data loading and ETLs, because its fast and has a low
 - **High Performance:** Optimized for speed and efficiency, suitable for research and production environments. Most actions are lazy, so no operation done until absolutely necessary.
 - **Extensive I/O Support:** Easily read from and write to various audio formats. Utilizes PyAv - to support multiple ranges.
 
+## Release notes 2.2.1
+- Support up to numpy 2.2.0
+- Streaming input, streaming output:
+   - AudioSample now supports receiving a python generator for input Generator[Union[bytes,numpy,AudioSample]]
+   - Warning: It currently still stores everything in memory so this can't live forever.
+   - Plugin functionality is not supported in stream mode.
+   - streaming mode requires PyAV (See example below):
+- Constructor supports numpy buffers (same as calling AudioSample.from_numpy use force_read_sample_rate to set sample rate.)
+
 ## Installation
 
 To install AudioSample, use pip:
@@ -140,6 +149,24 @@ For detailed instructions and API references, type help(AudioSample)
 ## Examples
 
 Explore the [examples notebook](examples.ipynb) to see practical applications of AudioSample in action.
+
+```
+
+def chunkify(buffer: bytes):
+    CHUNK_SIZE = 1000
+    for i in range(0, len(buffer), CHUNK_SIZE):
+        yield buffer[i:i+CHUNK_SIZE]
+
+testmp3 = open('test.mp3','rb').read()
+
+collect = b''
+for chunk in AudioSample(chunkify(testmp3), force_read_sample_rate=48000, force_sample_rate=8000).as_data_stream(force_out_format='mulaw')
+     collect += chunk
+
+open('test.mulaw','wb').write(chunk)
+
+```
+
 
 ## License
 
