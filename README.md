@@ -150,6 +150,7 @@ For detailed instructions and API references, type help(AudioSample)
 
 Explore the [examples notebook](examples.ipynb) to see practical applications of AudioSample in action.
 
+### Streaming code example below:
 ```
 
 def chunkify(buffer: bytes):
