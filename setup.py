@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='audiosample',
-    version='2.2.2',
+    version="2.2.3",
     packages=find_packages(),
     install_requires=[
         'numpy<=2.2.0',
@@ -21,7 +21,7 @@ setup(
         'all': ['jupyter', 'IPython', 'librosa', 'matplotlib', 'torch>=1.5', 'av>=12.3.0,<14'],
 
         #testing dependencies
-        'tests': ['pytest', 'jupyter', 'IPython', 'librosa', 'matplotlib', 'scipy', 'pyaudio', 'torch>=1.5', 'av>=12.3.0,<14',],
+        'tests': ['pytest', 'jupyter', 'IPython', 'librosa', 'matplotlib', 'scipy', 'pyaudio', 'torch>=1.5', 'av>=12.3.0,<14', 'fire==0.7.0',],
     },
     author='Nir Krakowski',
     author_email='nir@deepdub.ai',

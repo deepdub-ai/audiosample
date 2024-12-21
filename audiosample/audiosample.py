@@ -4,7 +4,7 @@ import sys
 import warnings
 from collections import defaultdict, namedtuple
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Generator, Any, Dict, List, Tuple, BinaryIO, cast
 from logging import getLogger
 from types import GeneratorType
 
@@ -53,8 +53,8 @@ DEFAULT_PRECISION = 16
 DEFAULT_SAMPLE_RATE = 48000
 DEFAULT_CHANNELS = 1
 DEFAULT_WAVE_FORMAT = 1
-PRECISION_CODECS = {16: "pcm_s16le", 24: "pcm_s24le", 32: "pcm_s32le"}
-PRECISION_FORMATS = {16: "s16le", 24: "s24le", 32: "s32le"}
+PRECISION_CODECS: Dict[int, str] = {16: "pcm_s16le", 24: "pcm_s24le", 32: "pcm_s32le"}
+PRECISION_FORMATS: Dict[int, str] = {16: "s16le", 24: "s24le", 32: "s32le"}
 WaveHeader = namedtuple("WaveHeader", ["riff_header", "total_length", "wave_header",
                                        "format_header", "format_data_length", "type_of_format", "channels",
                                        "sample_rate", "size_per_second", "channel_sample_width", "precision", "nulldata", "data_header",
@@ -137,10 +137,14 @@ class AudioSample:
     ```
 
     """
-    unit_sec = True
+    unit_sec: bool = True
 
     def __init__(self, f: Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType, None]=None, 
-                 force_read_format=None, force_sample_rate=None, force_channels=None, force_precision=None, unit_sec=None, thread_safe=False, stream_idx=0, force_read_sample_rate=None, force_read_channels=None, force_read_precision=None):
+                 force_read_format: Optional[str]=None, force_sample_rate: Optional[int]=None, 
+                 force_channels: Optional[int]=None, force_precision: Optional[int]=None, 
+                 unit_sec: Optional[bool]=None, thread_safe: bool=False, stream_idx: int=0, 
+                 force_read_sample_rate: Optional[int]=None, force_read_channels: Optional[int]=None, 
+                 force_read_precision: Optional[int]=None) -> None:
         """
         Initialize an AudioSample object.
         Parameters
@@ -166,27 +170,27 @@ class AudioSample:
         stream_idx : int, optional
             The index of the audio stream to read. If `stream_idx` is None, the first audio stream is read. If `stream_idx` is not None, the audio stream at index `stream_idx` is read.
         """
-        self._data = b''
-        self.start = 0
-        self.stream_idx = stream_idx
-        self.data_start = -1
-        self.len = 0
-        self.unit_sec = unit_sec if unit_sec is not None else self.__class__.unit_sec
-        self.thread_safe = thread_safe
+        self._data: bytes = b''
+        self.start: int = 0
+        self.stream_idx: int = stream_idx
+        self.data_start: int = -1
+        self.len: int = 0
+        self.unit_sec: bool = unit_sec if unit_sec is not None else self.__class__.unit_sec
+        self.thread_safe: bool = thread_safe
         self.wave_header: Optional[WaveHeader] = None
-        self.not_wave_header = None
-        self.input_container = None
-        self.force_read_format = None
-        self.force_sample_rate = None
-        self.force_channels = None
-        self.force_precision = None
-        self.iterable_input_buffer = None
-        self.force_read_sample_rate = force_read_sample_rate
-        self.force_read_channels = force_read_channels
-        self.force_read_precision = force_read_precision
-        self.layout_possibilities = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
+        self.not_wave_header: Optional[NotWaveHeader] = None
+        self.input_container: Optional[Any] = None
+        self.force_read_format: Optional[str] = None
+        self.force_sample_rate: Optional[int] = None
+        self.force_channels: Optional[int] = None
+        self.force_precision: Optional[int] = None
+        self.iterable_input_buffer: Optional[Generator] = None
+        self.force_read_sample_rate: Optional[int] = force_read_sample_rate
+        self.force_read_channels: Optional[int] = force_read_channels
+        self.force_read_precision: Optional[int] = force_read_precision
+        self.layout_possibilities: Dict[int, str] = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
         
-        self.f = None
+        self.f: Optional[Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType]] = None
 
         if f is not None:
             if isinstance(f, np.ndarray):
@@ -222,40 +226,42 @@ class AudioSample:
             self.data_start = 0
     
     @classmethod
-    def set_default_unit_samples(cls):
+    def set_default_unit_samples(cls) -> None:
         """
         Set the default unit_sec usage.
         """
         cls.unit_sec = False
     
     @classmethod
-    def set_default_unit_sec(cls):
+    def set_default_unit_sec(cls) -> None:
         """
         Set the default unit_sec usage.
         """
         cls.unit_sec = True
 
-    def unit_samples_(self, unit_samples=True):
+    def unit_samples_(self, unit_samples: bool=True) -> 'AudioSample':
         """
         Set the unit_sec usage in place.
         """
         self.unit_sec = not unit_samples
         return self
     # Inplace set unit_sec usage. returns self.
-    def unit_sec_(self, unit_sec=True):
+    def unit_sec_(self, unit_sec: bool=True) -> 'AudioSample':
         """
         Set the unit_sec usage in place.
         """
         self.unit_sec = unit_sec
         return self
 
-    def __enter__(self):
+    def __enter__(self) -> 'AudioSample':
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type: Any, value: Any, traceback: Any) -> None:
         self.cleanup()
 
-    def _open(self, f, force_read_format=None, force_sample_rate=None, force_channels=None, force_precision=None):
+    def _open(self, f: Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType], 
+              force_read_format: Optional[str]=None, force_sample_rate: Optional[int]=None, 
+              force_channels: Optional[int]=None, force_precision: Optional[int]=None) -> None:
         self.f = f
         self.force_read_format = force_read_format
         self.force_sample_rate = force_sample_rate
@@ -328,10 +334,10 @@ class AudioSample:
 
         self._open_with_av()
         
-    def _create_input_container(self):
+    def _create_input_container(self) -> None:
         try:
             if self.force_read_format or self.force_read_channels or self.force_read_sample_rate or self.force_read_precision:
-                kwargs = defaultdict(dict)
+                kwargs: Dict[str, Dict[str, str]] = defaultdict(dict)
                 if self.force_read_sample_rate:
                     kwargs['options']['sample_rate'] = str(self.force_read_sample_rate)
                 if self.force_read_channels:
@@ -345,7 +351,7 @@ class AudioSample:
         # | av.container.core.Flags.NOBUFFER | av.container.core.Flags.NONBLOCK
 
 
-    def _open_with_av(self):
+    def _open_with_av(self) -> None:
         self._create_input_container()
         self.n_streams = len(self.input_container.streams.audio)
         if self.stream_idx >= self.n_streams:
@@ -361,7 +367,7 @@ class AudioSample:
         self.start = int((start_time*input_stream.time_base)*out_sample_rate)
 
     @classmethod
-    def _get_codec_from_format_name(cls, format_name):
+    def _get_codec_from_format_name(cls, format_name: Optional[str]) -> Optional[str]:
         if format_name is None:
             return None
         if "mp3" in format_name:
@@ -376,14 +382,15 @@ class AudioSample:
             return "pcm_mulaw"
         elif "ogg" in format_name or "opus" in format_name:
             return "libvorbis"
-        elif "mp4" in format_name or "ipod" in format_name or "m4a" in format_name or "mov" in format_name or "m4b" in format_name or "ts" in format_name:
+        elif "mp4" in format_name or "ipod" in format_name or "m4a" in format_name or "mov" in format_name or "m4b" in format_name or "ts" in format_name or "aac" in format_name or "adts" in format_name:
             return "aac"
         return format_name
 
-    def _read_with_av(self, out_file=None, force_out_format=None, no_encode=False): #  -> GeneratorType[bytes]
+    def _read_with_av(self, out_file: Optional[Union[str, Path, io.BytesIO]]=None, 
+                     force_out_format: Optional[str]=None, no_encode: bool=False) -> Generator[bytes, None, None]:
         if self.len == 0:
             raise ValueError("No data in audiosample provided.")
-        def get_format_from_format_name(format_name):
+        def get_format_from_format_name(format_name: str) -> str:
             if "mp4" in format_name:
                 return "mp4"
             if "mov" in format_name:
@@ -393,14 +400,16 @@ class AudioSample:
             if "mulaw" in format_name:
                 return "wav"
             return format_name
-        def get_format_name_from_user_given_name(format_name):
+        def get_format_name_from_user_given_name(format_name: str) -> str:
             if "m4a" in format_name:
                 return "ipod"
             if "ts" in format_name:
                 return "mpegts"
+            if "aac" in format_name:
+                return "adts"
             return format_name
                     
-        real_out_file = None
+        real_out_file: Optional[BinaryIO] = None
         out_file = io.BytesIO() if not out_file else out_file
         seek_to_0_once = False
         if not self.f:
@@ -417,11 +426,9 @@ class AudioSample:
             no_encode = False
         if self.force_channels or self.force_sample_rate:
             no_encode = False
-
         if self.iterable_input_buffer:
-            if not isinstance(out_file, io.BytesIO):
-                real_out_file = out_file
-                out_file = io.BytesIO()
+            real_out_file = out_file
+            out_file = io.BytesIO()
             last_output_read_pos = 0
 
 
@@ -1099,6 +1106,9 @@ class AudioSample:
         ```
         """
         if (force_out_format and not force_out_format == 'wav') or (self.not_wave_header and no_encode) or self.format != 'wav':
+            if self.iterable_input_buffer:
+                if force_out_format in ['m4a', 'mp4', 'wav', 'mov']:
+                    raise ValueError("Cannot encode stream input to non-streamable output format")
             yield from self._read_with_av(out_file=out_file, force_out_format=force_out_format, no_encode=no_encode)
         else:
             out_buf = self.as_wav_data()
@@ -1136,11 +1146,11 @@ class AudioSample:
         self.data_start = 0
 
     @property
-    def is_thread_safe(self):
+    def is_thread_safe(self) -> bool:
         return self.thread_safe
 
     @classmethod
-    def from_wav_data(cls, data, unit_sec=None):
+    def from_wav_data(cls, data: bytes, unit_sec: Optional[bool] = None) -> 'AudioSample':
         """
         Create an AudioSample object from a wav file data.
         Parameters
@@ -1238,7 +1248,7 @@ class AudioSample:
         """
 
         logger.info(f"Writing audio sample: {audio_path}")
-        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov", "ts"]
+        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov", "ts", "aac", "adts"]
         #TODO: support writing directly to file object.
         if force_out_format and not force_out_format in ACCEPTED_SUFFIXES:
             raise NotImplementedError("Not supported output format")
