@@ -368,6 +368,10 @@ class AudioSample:
             return "mp3"
         elif "wav" in format_name or "s16le" in format_name:
             return "pcm_s16le"
+        elif "f32le" in format_name:
+            return "pcm_f32le"
+        elif "s24le" in format_name:
+            return "pcm_s24le"
         elif "mulaw" in format_name:
             return "pcm_mulaw"
         elif "ogg" in format_name or "opus" in format_name:
@@ -396,8 +400,8 @@ class AudioSample:
                 return "mpegts"
             return format_name
                     
-        if not out_file:
-            out_file = io.BytesIO()
+        real_out_file = None
+        out_file = io.BytesIO() if not out_file else out_file
         seek_to_0_once = False
         if not self.f:
             self.f = io.BytesIO(self.as_wav_data())
@@ -414,6 +418,13 @@ class AudioSample:
         if self.force_channels or self.force_sample_rate:
             no_encode = False
 
+        if self.iterable_input_buffer:
+            if not isinstance(out_file, io.BytesIO):
+                real_out_file = out_file
+                out_file = io.BytesIO()
+            last_output_read_pos = 0
+
+
         out_format = get_format_name_from_user_given_name(force_out_format) if force_out_format else get_format_from_format_name(self.input_container.format.name)
         output_container = av.open(out_file, format=out_format, mode='w', metadata_errors='ignore')
         input_stream = self.input_container.streams.audio[self.stream_idx]
@@ -429,8 +440,6 @@ class AudioSample:
         else:
             self.input_container.seek(seek_to, 
                                 stream=input_stream)
-        if self.iterable_input_buffer:
-            last_output_read_pos = 0
         if not no_encode:
             output_stream = output_container.add_stream(self.__class__._get_codec_from_format_name(out_format), 
                                     rate=self.force_sample_rate or self.sample_rate, layout=self.layout_possibilities[self.channels])
@@ -488,7 +497,7 @@ class AudioSample:
                     while (packet.pos + packet.size*2) > len(self.f.getvalue()):
                         try:
                             chunk = next(self.iterable_input_buffer)
-
+                            self.f.seek(0, 2)
                             if isinstance(chunk, bytes):
                                 self.f.write(chunk)
                             else:
@@ -506,6 +515,8 @@ class AudioSample:
                             break
                     self.f.seek(packet.pos + packet.size, 0)
                     chunk_out = out_file.getvalue()[last_output_read_pos:]
+                    if real_out_file:
+                        real_out_file.write(chunk_out)
                     last_output_read_pos = len(out_file.getvalue())
                     if (len(chunk_out) > 0):
                         yield chunk_out
@@ -542,10 +553,10 @@ class AudioSample:
         del output_container
         del out_file
         if self.iterable_input_buffer:
+            if real_out_file:
+                real_out_file.write(wav_buffer[last_output_read_pos:])
             yield wav_buffer[last_output_read_pos:]
         else:
-            if wav_buffer is None:
-                import ipdb; ipdb.set_trace()
             yield wav_buffer
 
     def _read_wav_with_av(self, out_file=None):
@@ -1069,9 +1080,9 @@ class AudioSample:
             self.read()
         return (struct.pack(WAVE_HEADER_STRUCT, *st) + self._data)
 
-    def as_data_stream(self, out_file=None, no_encode=False, force_out_format=None) -> Union[bytes,GeneratorType]:
+    def as_data_stream(self, out_file=None, no_encode=False, force_out_format=None) -> GeneratorType:
         """
-        Returns the audio data as a bytes object.
+        Returns a generator that yields the audio data in chunks.
         Parameters
         ----------
         out_file : Union[Path, str, io.BytesIO], optional
@@ -1095,7 +1106,22 @@ class AudioSample:
                 out_file.write(out_buf)
             return (yield out_buf)
     
-    def as_data(self, out_file=None, no_encode=False, force_out_format=None) -> Union[bytes,GeneratorType]:
+    def as_data(self, out_file: Optional[Union[Path, str, io.BytesIO, io.BufferedWriter]] = None, no_encode: bool = False, force_out_format: Optional[str] = None) -> bytes:
+        """
+        Returns the audio data as a bytes object or writes it to a file.
+        Parameters
+        ----------
+        out_file : Union[Path, str, io.BytesIO], optional
+            The file to write the audio data to. If `out_file` is None, the audio data is returned as a bytes object.
+        no_encode : bool, optional
+            Whether to encode the audio data. If `no_encode` is True, the audio data is returned as is. If `no_encode` is False, the audio data is encoded or re-encoded.
+        force_out_format : str, optional
+            The format to encode the audio data to. If `force_out_format` is None, the audio data is returned as is. If `force_out_format` is not None, the audio data is encoded to the specified format.
+        Returns
+        -------
+        Union[bytes, GeneratorType]
+            The audio data as a bytes object or a generator that yields chunks of audio data.
+        """
         #collect all bytes from as_data
         collect = b''
         gen = self.as_data_stream(out_file=out_file, no_encode=no_encode, force_out_format=force_out_format)
