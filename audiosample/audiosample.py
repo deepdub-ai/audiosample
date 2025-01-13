@@ -299,13 +299,13 @@ class AudioSample:
                 if isinstance(first_chunk, np.ndarray):
                     if not self.force_read_sample_rate:
                         raise ValueError("force_read_sample_rate must be provided if numpy array is provided.")
-                    first_chunk = AudioSample.from_numpy(first_chunk, rate=self.force_sample_rate)
+                    first_chunk = AudioSample.from_numpy(first_chunk, rate=self.force_read_sample_rate)
                 if isinstance(first_chunk, AudioSample):
                     first_chunk.read()
                     f = self.f = io.BytesIO(first_chunk._data)
-                    self.force_channels = first_chunk.channels
-                    self.force_sample_rate = first_chunk.sample_rate
-                    self.force_precision = first_chunk.precision
+                    self.force_channels = self.force_channels or first_chunk.channels
+                    self.force_sample_rate = self.force_sample_rate or first_chunk.sample_rate
+                    self.force_precision = self.force_precision or first_chunk.precision
                 else:
                     raise ValueError(f"Unsupported generator type {type(first_chunk)=}")
 
