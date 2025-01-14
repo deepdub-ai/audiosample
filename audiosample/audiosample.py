@@ -144,7 +144,7 @@ class AudioSample:
                  force_channels: Optional[int]=None, force_precision: Optional[int]=None, 
                  unit_sec: Optional[bool]=None, thread_safe: bool=False, stream_idx: int=0, 
                  force_read_sample_rate: Optional[int]=None, force_read_channels: Optional[int]=None, 
-                 force_read_precision: Optional[int]=None) -> None:
+                 force_read_precision: Optional[int]=None, force_bit_rate: Optional[int]=None) -> None:
         """
         Initialize an AudioSample object.
         Parameters
@@ -188,6 +188,7 @@ class AudioSample:
         self.force_read_sample_rate: Optional[int] = force_read_sample_rate
         self.force_read_channels: Optional[int] = force_read_channels
         self.force_read_precision: Optional[int] = force_read_precision
+        self.force_bit_rate: Optional[int] = force_bit_rate
         self.layout_possibilities: Dict[int, str] = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
         
         self.f: Optional[Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType]] = None
@@ -209,8 +210,8 @@ class AudioSample:
             elif isinstance(f, AudioSample):
                 self.__setstate__(f.__getstate__())
             else:
-                self._open(f, force_read_format=force_read_format,
-                       force_sample_rate=force_sample_rate, force_channels=force_channels, force_precision=force_precision)
+                self._open(f, force_read_format=force_read_format, 
+                       force_sample_rate=force_sample_rate, force_channels=force_channels, force_precision=force_precision, force_bit_rate=force_bit_rate)
         else:
             #create empty AudioSample
             precision = force_precision if force_precision else DEFAULT_PRECISION
@@ -261,12 +262,14 @@ class AudioSample:
 
     def _open(self, f: Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType], 
               force_read_format: Optional[str]=None, force_sample_rate: Optional[int]=None, 
-              force_channels: Optional[int]=None, force_precision: Optional[int]=None) -> None:
+              force_channels: Optional[int]=None, force_precision: Optional[int]=None, force_bit_rate: Optional[int]=None) -> None:
         self.f = f
         self.force_read_format = force_read_format
         self.force_sample_rate = force_sample_rate
         self.force_channels = force_channels
         self.force_precision = force_precision
+        self.force_bit_rate = force_bit_rate
+
         if isinstance(f, bytes):
             f = self.f = io.BytesIO(f)
 
@@ -345,7 +348,8 @@ class AudioSample:
                 self.input_container = av.open(self.f, format=self.force_read_format, mode='r', metadata_errors='ignore', **kwargs)
             else:
                 self.input_container = av.open(self.f, metadata_errors='ignore')
-            self.input_container.flags |= av.container.core.Flags.FAST_SEEK 
+            self.input_container.flags |= av.container.core.Flags.FAST_SEEK
+            
         except av.error.InvalidDataError:
             raise ValueError(f"Corrupt data or header")
         # | av.container.core.Flags.NOBUFFER | av.container.core.Flags.NONBLOCK
@@ -431,7 +435,6 @@ class AudioSample:
             out_file = io.BytesIO()
             last_output_read_pos = 0
 
-
         out_format = get_format_name_from_user_given_name(force_out_format) if force_out_format else get_format_from_format_name(self.input_container.format.name)
         output_container = av.open(out_file, format=out_format, mode='w', metadata_errors='ignore')
         input_stream = self.input_container.streams.audio[self.stream_idx]
@@ -450,7 +453,9 @@ class AudioSample:
         if not no_encode:
             output_stream = output_container.add_stream(self.__class__._get_codec_from_format_name(out_format), 
                                     rate=self.force_sample_rate or self.sample_rate, layout=self.layout_possibilities[self.channels])
-
+            
+            if self.force_bit_rate:
+                output_stream.bit_rate = self.force_bit_rate
             codec = output_stream.codec_context
             frame_ts_start = None
             for packet in self.input_container.demux(input_stream):
@@ -464,6 +469,7 @@ class AudioSample:
                             continue                    
                         if packet.dts and (packet.dts*input_stream.time_base) >= stop_sec:
                             break
+                    
                     for frame in packet.decode():
                         if frame.dts is None or (frame.dts*input_stream.time_base+frame.samples/frame.sample_rate) <= start_sec:
                             del frame
@@ -501,10 +507,12 @@ class AudioSample:
                     logger.warning(f"Invalid packet found while processing {self.f}")
                     pass
                 if self.iterable_input_buffer:
-                    while (packet.pos + packet.size*2) > len(self.f.getvalue()):
+                    #save the original position of the av reader
+                    av_reader_pos = self.f.tell()
+                    MIN_PACKETS = 2
+                    while (packet.pos + packet.size*MIN_PACKETS) > len(self.f.getvalue()):
                         try:
                             chunk = next(self.iterable_input_buffer)
-                            self.f.seek(0, 2)
                             if isinstance(chunk, bytes):
                                 self.f.write(chunk)
                             else:
@@ -517,10 +525,10 @@ class AudioSample:
                                     self.f.write(chunk._data)
                                 else:
                                     raise ValueError(f"Unsupported iterator type {type(chunk)=}")
-                            self.f.seek(packet.pos + packet.size, 0)
                         except StopIteration:
                             break
-                    self.f.seek(packet.pos + packet.size, 0)
+                    #go back to the original position
+                    self.f.seek(av_reader_pos, 0)
                     chunk_out = out_file.getvalue()[last_output_read_pos:]
                     if real_out_file:
                         real_out_file.write(chunk_out)
@@ -551,12 +559,14 @@ class AudioSample:
                 output_container.mux(pkt)
                 del packet
 
+
         output_container.close()
         wav_buffer = b''
         if getattr(out_file, 'getvalue', None):
             wav_buffer = out_file.getvalue()
         if out_file.tell() == 0:
             raise ValueError("No data in audiosample provided.")
+
         del output_container
         del out_file
         if self.iterable_input_buffer:

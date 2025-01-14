@@ -1,3 +1,5 @@
+from random import randint
+from random import seed
 from audiosample import AudioSample
 import numpy as np
 def test_stream_wav_to_mp3():
@@ -135,7 +137,6 @@ def test_stream_to_mp3_file(tmp_path):
     assert output_file_aac.exists()
     assert output_file_aac.stat().st_size > 0
 
-
 def test_stream_to_wav_file(tmp_path):
     audio_data_np = AudioSample().beep(10).as_numpy()
     output_file_wav = tmp_path / "test_output.wav"
@@ -151,3 +152,45 @@ def test_stream_to_wav_file(tmp_path):
     except ValueError as e:
         assert str(e) == "Cannot encode stream input to non-streamable output format"
     
+
+def test_stream_random_chunkify_to_mp3_file(tmp_path):
+            
+    seed(0)
+    def normal_chunkify(x):
+        CHUNK_SIZE = 10000
+        tot = 0
+        for i in range(0, x.shape[-1], CHUNK_SIZE):
+            c = x[..., i:i+CHUNK_SIZE]
+            tot += c.shape[-1]
+            yield c
+        assert tot == x.shape[-1]
+        return x
+    audio_data_np = AudioSample().beep(10).as_numpy()
+    out_no_stream = AudioSample(audio_data_np, force_read_sample_rate=48000).as_data(force_out_format='mp3')
+    out_stream = b"".join(list(AudioSample(normal_chunkify(audio_data_np), force_read_sample_rate=48000).as_data_stream(force_out_format='mp3')))
+    
+    #print len in numpy diff
+    print(f"len diff: {AudioSample(out_stream).as_numpy().shape[-1] - AudioSample(out_no_stream).as_numpy().shape[-1]}")
+    #find the first difference
+    diff_idx = np.where(AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] != AudioSample(out_no_stream).as_numpy())[0][0]
+    print(f"diff_idx: {diff_idx}")
+    # assert diff_idx == 0
+    print((AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] == AudioSample(out_no_stream).as_numpy()).argmax())
+    # assert np.all(AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] == AudioSample(out_no_stream).as_numpy())
+
+    seed(0)
+    def random_chunkify(x):
+        i = 0
+        while i < x.shape[-1]:
+            j = i
+            i += randint(100, 48000)
+            yield x[...,j:i]
+    #random chunkify with random chunk size
+    def random_chunkify_random_size(x):
+        i = 0
+        while i < x.shape[-1]:
+            j = i
+            i += randint(100, 48000)
+            yield x[...,j:i]
+    out_stream = b"".join(list(AudioSample(random_chunkify_random_size(audio_data_np), force_read_sample_rate=48000).as_data_stream(force_out_format='mp3')))
+    #assert np.all(AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] == AudioSample(out_no_stream).as_numpy())
