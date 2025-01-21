@@ -445,7 +445,7 @@ class AudioSample:
         seek_to = int(max((start_sec-0.5), start_time)/input_stream.time_base)
         if seek_to == start_time and start_time == 0:
             if not seek_to_0_once:
-                self.f.seek(0,0)
+                self.f.seek(0,0) if hasattr(self.f, 'seek') else None
                 self._create_input_container()
         else:
             self.input_container.seek(seek_to, 
