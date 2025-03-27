@@ -1,7 +1,24 @@
 from random import randint
 from random import seed
+import time
 from audiosample import AudioSample
+from audiosample.downsampler import Downsampler
+from audiosample.downsampler import mu_law_encode
 import numpy as np
+import pytest
+
+def random_chunkify_random_size(x):
+    i = 0
+    while i < x.shape[-1]:
+        j = i
+        i += randint(100, 48000)
+        yield x[...,j:i]
+
+def chunk_data_as_numpy(np_data, chunk_size=1000):
+    for i in range(0, np_data.shape[-1], chunk_size):
+        yield np_data[..., i:i+chunk_size]
+
+
 def test_stream_wav_to_mp3():
     audio_data = AudioSample().beep(100)
     audio_data_wav = audio_data.as_data(force_out_format='s16le')
@@ -71,12 +88,6 @@ def test_wav_to_mulaw():
 
 def test_stream_numpy_to_mulaw():
     audio_data_np = AudioSample().beep(100).as_numpy()
-    def chunk_data_as_numpy(np_data):
-        CHUNK_SIZE = 1000
-        for i in range(0, np_data.shape[-1], CHUNK_SIZE):
-            # print(".", end="")
-            yield np_data[..., i:i+CHUNK_SIZE]
-
     
     chunked = chunk_data_as_numpy(audio_data_np)
     l = 0
@@ -97,12 +108,7 @@ def test_stream_numpy_to_mulaw():
 
 def test_stream_to_mp3_file(tmp_path):
     audio_data_np = AudioSample().beep(10).as_numpy()
-    
-    def chunk_data_as_numpy(np_data):
-        CHUNK_SIZE = 1000
-        for i in range(0, np_data.shape[-1], CHUNK_SIZE):
-            yield np_data[..., i:i+CHUNK_SIZE]
-    
+        
     # Test MP3 output
     output_file_mp3 = tmp_path / "test_output.mp3"
     
@@ -141,10 +147,6 @@ def test_stream_to_wav_file(tmp_path):
     audio_data_np = AudioSample().beep(10).as_numpy()
     output_file_wav = tmp_path / "test_output.wav"
     #stream audio data to file
-    def chunk_data_as_numpy(np_data):
-        CHUNK_SIZE = 1000
-        for i in range(0, np_data.shape[-1], CHUNK_SIZE):
-            yield np_data[..., i:i+CHUNK_SIZE]
             
     au = AudioSample(chunk_data_as_numpy(audio_data_np), force_read_sample_rate=48000)
     try:
@@ -186,11 +188,177 @@ def test_stream_random_chunkify_to_mp3_file(tmp_path):
             i += randint(100, 48000)
             yield x[...,j:i]
     #random chunkify with random chunk size
-    def random_chunkify_random_size(x):
-        i = 0
-        while i < x.shape[-1]:
-            j = i
-            i += randint(100, 48000)
-            yield x[...,j:i]
     out_stream = b"".join(list(AudioSample(random_chunkify_random_size(audio_data_np), force_read_sample_rate=48000).as_data_stream(force_out_format='mp3')))
     #assert np.all(AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] == AudioSample(out_no_stream).as_numpy())
+
+#run for freq 8000, and 22050
+@pytest.mark.parametrize("sample_rate", [8000, 22050])
+def test_stream_random_chunkify_to_headerless_wav_file(tmp_path, sample_rate):
+    audio_data_np = AudioSample().beep(3, freq=400).as_numpy()
+    #stream audio data to file
+    au = AudioSample(chunk_data_as_numpy(audio_data_np, chunk_size=100), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    data_stream = au.as_data_stream(force_out_format='wav', no_encode=False)
+    collect = b""
+    for i, data in enumerate(data_stream):
+        # print(f"data {i}: {len(data)=}")
+        collect += data
+    au2 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+
+
+    print(f"collected: {len(collect)=}")
+    au = AudioSample(random_chunkify_random_size(audio_data_np), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    data = au.as_data(force_out_format='wav', no_encode=False)
+    assert data == collect 
+    au2 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+    # au2.play()
+    def one_chunk_data_as_numpy(np_data):
+        yield np_data
+    au = AudioSample(one_chunk_data_as_numpy(audio_data_np), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    data_stream = au.as_data_stream(force_out_format='wav', no_encode=False)
+    collect = b""
+    for i, data in enumerate(data_stream):
+        print(f"data {i}: {len(data)=}")
+        collect += data
+    print(f"collected: {len(collect)=}")
+    #play
+    au4 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+    # au4.play()
+    
+@pytest.mark.parametrize("src_sample_rate, target_sample_rate", [(48000, 8000), (48000, 22050)])
+def test_stream_downsampler(src_sample_rate, target_sample_rate):
+    audio_data_np = AudioSample(force_sample_rate=src_sample_rate).beep(10, freq=500).as_numpy()
+
+    ##WARM
+    ds = Downsampler(src_sample_rate, target_sample_rate)
+    t1 = time.time()    
+    collect1 = np.array([])
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=10000)):
+        out = mu_law_encode(ds.encode(data))
+        break
+    t2 = time.time()
+    print(f"warm time: {(t2-t1)*1000=}ms")
+    #stream audio data to file
+    ds = Downsampler(src_sample_rate, target_sample_rate)
+    t1 = time.time()
+    collect1 = np.array([])
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=10)):
+        out = ds.encode(data)
+        collect1 = np.concatenate([collect1, out])
+    collect1 = np.concatenate([collect1, ds.encode(None)])
+    t2 = time.time()
+    print(f"10 time: {(t2-t1)*1000=}ms")
+    #now with different chunk size
+    # ds = Downsampler(src_sample_rate, target_sample_rate)
+
+    t1 = time.time()
+    collect2 = b''
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=100)):
+        collect2 += mu_law_encode(ds.encode(data)).tobytes()
+    collect2 += mu_law_encode(ds.encode(None)).tobytes()
+    # AudioSample._mu_law_encode(collect2).tobytes()
+    t2 = time.time()
+    print(f"mulaw 100 time: {(t2-t1)*1000=}ms")
+
+    t1 = time.time()
+    collect2 = np.array([])
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=100)):
+        out = ds.encode(data)
+        collect2 = np.concatenate([collect2, out])
+    collect2 = np.concatenate([collect2, ds.encode(None)])
+    # AudioSample._mu_law_encode(collect2).tobytes()
+    t2 = time.time()
+    assert np.all(collect1 == collect2)
+    print(f"100 time: {(t2-t1)*1000=}ms")
+    #now with different chunk size
+    # ds = Downsampler(src_sample_rate, target_sample_rate)
+    t1 = time.time()
+    collect3 = np.array([])
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=10000)):
+        out = ds.encode(data)
+        collect3 = np.concatenate([collect3, out])
+    collect3 = np.concatenate([collect3, ds.encode(None)])
+    t2 = time.time()
+    assert np.all(collect1 == collect3)
+    print(f"10K time: {(t2-t1)*1000=}ms")
+    #now with different chunk size
+    # ds = Downsampler(src_sample_rate, target_sample_rate)
+    t1 = time.time()
+    collect4 = np.array([])
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=100000)):
+        out = ds.encode(data)
+        collect4 = np.concatenate([collect4, out])
+    collect4 = np.concatenate([collect4, ds.encode(None)])
+    t2 = time.time()
+    assert np.all(collect1 == collect4)
+    print(f"100K time: {(t2-t1)*1000=}ms")
+
+    t1 = time.time()
+    collect2 = b''
+    for i, data in enumerate(chunk_data_as_numpy(audio_data_np, chunk_size=100000)):
+        collect2 += mu_law_encode(ds.encode(data)).tobytes()
+    collect2 += mu_law_encode(ds.encode(None)).tobytes()
+    # AudioSample._mu_law_encode(collect2).tobytes()
+    t2 = time.time()
+    print(f"mulaw 100K time: {(t2-t1)*1000=}ms")
+
+
+    t1 = time.time()
+    wav = AudioSample(chunk_data_as_numpy(audio_data_np, chunk_size=100), force_read_sample_rate=src_sample_rate, force_sample_rate=target_sample_rate).as_data(force_out_format='mulaw', no_encode=False)
+    t2 = time.time()
+    print(f"100 pyav time: {(t2-t1)*1000=}ms")
+
+
+
+    t1 = time.time()
+    wav = AudioSample(chunk_data_as_numpy(audio_data_np, chunk_size=10000), force_read_sample_rate=src_sample_rate, force_sample_rate=target_sample_rate).as_data(force_out_format='mulaw', no_encode=False)
+    t2 = time.time()
+    print(f"10K pyav time: {(t2-t1)*1000=}ms")
+
+    t1 = time.time()
+    wav = AudioSample(chunk_data_as_numpy(audio_data_np, chunk_size=100000), force_read_sample_rate=src_sample_rate, force_sample_rate=target_sample_rate).as_data(force_out_format='mulaw', no_encode=False)
+    t2 = time.time()
+    print(f"100K pyav time: {(t2-t1)*1000=}ms")
+
+
+    # au = AudioSample(collect1, force_read_sample_rate=target_sample_rate)
+    # au.save(str("test_output_downsampler.wav"))
+    # au.play()
+
+@pytest.mark.slow
+@pytest.mark.parametrize("sample_rate", [8000])
+def test_stream_random_chunkify_to_headerless_wav_file_with_play(tmp_path, sample_rate):
+    audio_data_np = AudioSample().beep(3, freq=500).as_numpy()
+    #stream audio data to file
+    # au = AudioSample(chunk_data_as_numpy(audio_data_np, chunk_size=100), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    # data_stream = au.as_data_stream(force_out_format='wav', no_encode=False)
+    # collect = b""
+    # for i, data in enumerate(data_stream):
+    #     # print(f"data {i}: {len(data)=}")
+    #     collect += data
+    # au2 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+    # # au2.play()
+
+    # print(f"collected: {len(collect)=}")
+    seed(0)
+    au = AudioSample(random_chunkify_random_size(audio_data_np), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    collect = au.as_data(force_out_format='wav', no_encode=False)
+    print(f"data: {len(collect)=}")
+    #assert data == collect 
+    au2 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+    au2.save(str("test_output_random_chunkify_to_headerless_wav_file_with_play.wav"))
+    import ipdb; ipdb.set_trace()
+    au2.play()
+    def one_chunk_data_as_numpy(np_data):
+        yield np_data
+    au = AudioSample(one_chunk_data_as_numpy(audio_data_np), force_read_sample_rate=48000, force_sample_rate=sample_rate)
+    data_stream = au.as_data_stream(force_out_format='wav', no_encode=False)
+    collect2 = b""
+    for i, data in enumerate(data_stream):
+        print(f"data {i}: {len(data)=}")
+        collect2 += data
+    assert collect == collect2
+    print(f"collected: {len(collect)=}")
+    #play
+    au4 = AudioSample.from_headerless_data(collect, sample_rate=sample_rate, precision=16, channels=1)
+    au4.play()
+    au4.save(str("test_output_one_chunk_data_as_numpy_to_headerless_wav_file_with_play.wav"))

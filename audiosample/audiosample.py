@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional, Union, Generator, Any, Dict, List, Tuple, BinaryIO, cast
 from logging import getLogger
 from types import GeneratorType
+import itertools
+
+from audiosample.downsampler import Downsampler
 
 logger = getLogger(__name__)
 
@@ -189,6 +192,7 @@ class AudioSample:
         self.force_read_channels: Optional[int] = force_read_channels
         self.force_read_precision: Optional[int] = force_read_precision
         self.force_bit_rate: Optional[int] = force_bit_rate
+        self.numpy_to_headerless_wav_stream: bool = False
         self.layout_possibilities: Dict[int, str] = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
         
         self.f: Optional[Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType]] = None
@@ -300,6 +304,8 @@ class AudioSample:
                 f = self.f = io.BytesIO(first_chunk)
             else:
                 if isinstance(first_chunk, np.ndarray):
+                    self.iterable_input_buffer = itertools.chain([first_chunk], self.iterable_input_buffer)
+
                     if not self.force_read_sample_rate:
                         raise ValueError("force_read_sample_rate must be provided if numpy array is provided.")
                     first_chunk = AudioSample.from_numpy(first_chunk, rate=self.force_read_sample_rate)
@@ -458,6 +464,8 @@ class AudioSample:
                 output_stream.bit_rate = self.force_bit_rate
             codec = output_stream.codec_context
             frame_ts_start = None
+            input_packets_in_loop = 0
+            no_more_to_ingest = False
             for packet in self.input_container.demux(input_stream):
                 try:
                     if packet.dts is None:
@@ -507,6 +515,9 @@ class AudioSample:
                     logger.warning(f"Invalid packet found while processing {self.f}")
                     pass
                 if self.iterable_input_buffer:
+                    if no_more_to_ingest and input_packets_in_loop > 0:
+                        no_more_to_ingest = False
+                        
                     #save the original position of the av reader
                     av_reader_pos = self.f.tell()
                     MIN_PACKETS = 2
@@ -515,6 +526,7 @@ class AudioSample:
                             chunk = next(self.iterable_input_buffer)
                             if isinstance(chunk, bytes):
                                 self.f.write(chunk)
+                                input_packets_in_loop += (chunk // packet.size)
                             else:
                                 if isinstance(chunk, np.ndarray):
                                     chunk = AudioSample.from_numpy(chunk, rate=self.force_read_sample_rate)
@@ -523,10 +535,12 @@ class AudioSample:
                                 if isinstance(chunk, AudioSample):
                                     chunk.read()
                                     self.f.write(chunk._data)
+                                    input_packets_in_loop += (chunk.len // packet.size)
                                 else:
                                     raise ValueError(f"Unsupported iterator type {type(chunk)=}")
                         except StopIteration:
                             break
+                    no_more_to_ingest = True
                     #go back to the original position
                     self.f.seek(av_reader_pos, 0)
                     chunk_out = out_file.getvalue()[last_output_read_pos:]
@@ -1003,6 +1017,22 @@ class AudioSample:
         del nout
         return out
 
+    @staticmethod
+    def _as_wav_data_from_numpy_with_precision(numpy_data: np.ndarray, precision: Optional[int]=None) -> bytes:
+        if precision is None:
+            precision = DEFAULT_PRECISION
+        if precision == 16:
+            return (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR)) * SAMPLE_TO_FLOAT_DIVISOR).astype('int16').tobytes()
+        elif precision == 24:
+            numpy_data = (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR_24BIT)) * SAMPLE_TO_FLOAT_DIVISOR_24BIT).astype('int32')
+            numpy_data = np.stack([numpy_data & 0xff, (numpy_data >> 8) & 0xff, (numpy_data >> 16)], axis=-1)
+            numpy_data = numpy_data.astype('uint8')
+            return numpy_data.tobytes()
+        elif precision == 32:
+            return (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR_32BIT)) * SAMPLE_TO_FLOAT_DIVISOR_32BIT).astype('int32').tobytes()
+        else:
+            raise ValueError(f"Unsupported precision {precision}")
+
     @classmethod
     def from_numpy(cls, numpy_data: np.ndarray, rate=None, precision=DEFAULT_PRECISION, unit_sec=None):
         """
@@ -1051,15 +1081,7 @@ class AudioSample:
         if channels > 1:
             numpy_data = numpy_data.transpose()
 
-        if precision == 16:
-            new._data = (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR)) * SAMPLE_TO_FLOAT_DIVISOR).astype('int16').tobytes()
-        elif precision == 24:
-            numpy_data = (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR_24BIT)) * SAMPLE_TO_FLOAT_DIVISOR_24BIT).astype('int32')
-            numpy_data = np.stack([numpy_data & 0xff, (numpy_data >> 8) & 0xff, (numpy_data >> 16)], axis=-1)
-            numpy_data = numpy_data.astype('uint8')
-            new._data = numpy_data.tobytes()
-        elif precision == 32:
-            new._data = (numpy_data.clip(min=-1, max=(1-1/SAMPLE_TO_FLOAT_DIVISOR_32BIT)) * SAMPLE_TO_FLOAT_DIVISOR_32BIT).astype('int32').tobytes()
+        new._data = AudioSample._as_wav_data_from_numpy_with_precision(numpy_data, precision)
 
         new.data_start = 0
         new.f = None
@@ -1096,7 +1118,91 @@ class AudioSample:
         if not self._data:
             self.read()
         return (struct.pack(WAVE_HEADER_STRUCT, *st) + self._data)
+    
 
+    @staticmethod
+    def _mu_law_encode(audio: np.ndarray, mu: int = 255) -> np.ndarray:
+        """
+        Encode a float32/float64 signal in [-1,1] to 8-bit mu-law.
+        Returns np.uint8 array in [0..255].
+        """
+        # 1) Ensure the signal is within -1..1. Clip if needed
+        audio = np.clip(audio, -1.0, 1.0)
+
+        # 2) Apply mu-law
+        magnitude = np.log1p(mu * np.abs(audio)) / np.log1p(mu)
+        signal = np.sign(audio) * magnitude  # in [-1,1]
+
+        # 3) Convert to 0..255
+        mu_law_8bit = ((signal + 1) * 127.5).astype(np.uint8)
+        # or equivalently: np.floor((signal + 1) / 2 * 255) 
+        # but 127.5 is exact half of 255, so either approach works
+        
+        return mu_law_8bit
+
+
+    def as_headerless_wav_stream(self, out_file=None, force_out_format=None) -> GeneratorType:
+        """
+        Returns a generator that yields the audio data in mu-law encoded chunks.
+        Parameters
+        ----------
+        out_file : Union[Path, str, io.BytesIO], optional
+            The file to write the audio data to. If `out_file` is None, the audio data is returned as a bytes object.
+        no_encode : bool, optional
+            Whether to encode the audio data. If `no_encode` is True, the audio data is returned as is. If `no_encode` is False, the audio data is encoded or re-encoded.
+        force_out_format : str, optional
+            The format to encode the audio data to. If `force_out_format` is None, the audio data is returned as is. If `force_out_format` is not None, the audio data is encoded to the specified format.
+        Returns
+        -------
+        GeneratorType
+            A generator that yields the audio data in mu-law encoded chunks.
+        """
+        downsampler = Downsampler(self.force_read_sample_rate, self.force_sample_rate)
+        if force_out_format != 'wav' and force_out_format != 'mulaw':
+            raise ValueError(f"force_out_format must be 'wav' or 'mulaw', got {force_out_format}")
+        if self.force_read_sample_rate < self.force_sample_rate:
+            raise ValueError("Unable to upsample from force_read_sample_rate to force_sample_rate")
+
+        for chunk in self.iterable_input_buffer:
+            if chunk is None:
+                break
+            if not isinstance(chunk, np.ndarray):
+                raise ValueError("Invalid input type for headerless wav stream")
+            if chunk.dtype != np.float32:
+                raise ValueError("headerless wav stream only supports float32 or float64 input")
+            if chunk.dtype == np.float64:
+                chunk = chunk.astype(np.float32)
+            if chunk.ndim != 1 and chunk.ndim != 2:
+                raise ValueError("Invalid numpy shape for headerless wav stream (dims != 1 or 2)")
+            if chunk.ndim == 2 and chunk.shape[0] != 1:
+                if self.force_channels == 1:
+                    chunk = chunk.mean(axis=0)
+                else:
+                    raise ValueError("headerless wav stream only supports mono input")
+            chunk = chunk.squeeze()
+                
+            if self.force_read_sample_rate > self.force_sample_rate:
+                chunk = downsampler.encode(chunk)
+            else:
+                chunk = chunk
+            if force_out_format == 'mulaw':
+                chunk = AudioSample._mu_law_encode(chunk).tobytes()
+            else:
+                chunk = AudioSample._as_wav_data_from_numpy_with_precision(chunk, self.force_precision)
+            if out_file:
+                out_file.write(chunk)
+            yield chunk
+        chunk = downsampler.encode(None)
+        if chunk.shape[-1] > 0:
+            if force_out_format == 'mulaw':
+                chunk = AudioSample._mu_law_encode(chunk).tobytes()
+            else:
+                chunk = AudioSample._as_wav_data_from_numpy_with_precision(chunk, self.force_precision)
+            if out_file:
+                out_file.write(chunk)
+            yield chunk
+
+        
     def as_data_stream(self, out_file=None, no_encode=False, force_out_format=None) -> GeneratorType:
         """
         Returns a generator that yields the audio data in chunks.
@@ -1115,11 +1221,17 @@ class AudioSample:
         audio_1s_data = audio_sample[0:1].as_data(no_encode=True)
         ```
         """
+        if self.iterable_input_buffer:
+            if force_out_format in ['m4a', 'mp4', 'mov']:
+                raise ValueError("Cannot encode stream input to non-streamable output format")
+        if (force_out_format == 'wav' or force_out_format == 'mulaw') and self.iterable_input_buffer:
+            if no_encode:
+                raise ValueError("no_encode is not supported for headerless wav stream")
+            yield from self._read_with_av(out_file=out_file, force_out_format=force_out_format, no_encode=no_encode) #self.as_headerless_wav_stream(out_file=out_file, force_out_format=force_out_format)
+            return
         if (force_out_format and not force_out_format == 'wav') or (self.not_wave_header and no_encode) or self.format != 'wav':
-            if self.iterable_input_buffer:
-                if force_out_format in ['m4a', 'mp4', 'wav', 'mov']:
-                    raise ValueError("Cannot encode stream input to non-streamable output format")
             yield from self._read_with_av(out_file=out_file, force_out_format=force_out_format, no_encode=no_encode)
+            return
         else:
             out_buf = self.as_wav_data()
             if out_file:
