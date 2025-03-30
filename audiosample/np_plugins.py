@@ -163,7 +163,6 @@ def duck_mix(self, start, other, fade_start_duration=None, fade_start_relative=0
         fade_end_relative = int((fade_end_relative or 0) * self.sample_rate)
     assert fade_end_duration >=0, "Fade durations must be 0 or larger"
     assert fade_start_duration >= 0, "Fade durations must be 0 or larger"
-    import ipdb; ipdb.set_trace()
     start_start_fade = max(fade_start_relative, 0-start)
     end_start_fade = start_start_fade + abs(fade_start_duration)
     start_end_fade = max(fade_end_relative, 0-(len(other)+start))
