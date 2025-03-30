@@ -145,6 +145,7 @@ def duck_mix(self, start, other, fade_start_duration=None, fade_start_relative=0
     """
     assert fade_mix_duration is None or fade_mix_duration >= 0, "Fade in duration must be greater than or equal to 0"
     assert isinstance(start, int) or (self.unit_sec and isinstance(start, float)), "Start must be an integer or float with unit_sec=True"
+    assert start >= 0, "Start must be 0 or larger"
     assert isinstance(fade_mix_duration, int) or self.unit_sec and isinstance(fade_mix_duration, float) or fade_mix_duration is None, "Fade in duration must be an integer or float with unit_sec=True or None"
 
     if not isinstance(other, AudioSample):
@@ -160,14 +161,20 @@ def duck_mix(self, start, other, fade_start_duration=None, fade_start_relative=0
         fade_end_duration = int((fade_end_duration or 0) * self.sample_rate)
         fade_start_relative = int((fade_start_relative or 0) * self.sample_rate)
         fade_end_relative = int((fade_end_relative or 0) * self.sample_rate)
-    end_start_fade = max(min(fade_start_duration, len(other)), 0)
-    end_end_fade = max(min(fade_end_duration, len(other)), 1)
+    assert fade_end_duration >=0, "Fade durations must be 0 or larger"
+    assert fade_start_duration >= 0, "Fade durations must be 0 or larger"
+    import ipdb; ipdb.set_trace()
+    start_start_fade = max(fade_start_relative, 0-start)
+    end_start_fade = start_start_fade + abs(fade_start_duration)
+    start_end_fade = max(fade_end_relative, 0-(len(other)+start))
+    end_end_fade = start_end_fade + fade_end_duration
+    assert end_start_fade < (len(other) + end_end_fade), "Start fade must end after the ending fade has ended."
     if start < 0:
         raise ValueError("Start must be greater than or equal to 0")
     if start + len(other) + end_end_fade > len(self):
         n = self.as_numpy()
         shape = [*n.shape]
-        shape[-1] = start + len(other) + end_end_fade - len(self)
+        shape[-1] = start + len(other) + max(end_end_fade,0) - len(self)
         out = np.concatenate((n, np.zeros(shape)), axis=-1)
     else:
         out = self.as_numpy()
@@ -181,10 +188,10 @@ def duck_mix(self, start, other, fade_start_duration=None, fade_start_relative=0
         duck_db = -18
     duck_factor = gain_in_db_to_factor(duck_db)
     if fade_start_duration:
-        out[..., start:start+end_start_fade] *= np.linspace(1, duck_factor, fade_start_duration)
+        out[..., start+start_start_fade:start+end_start_fade] *= np.linspace(1, duck_factor, fade_start_duration)
     if fade_end_duration:
-        out[..., start+len(other):start+len(other)+end_end_fade] *= np.linspace(duck_factor, 1, fade_end_duration)
-    out[..., start:start + len(other)] *= duck_factor
+        out[..., start+len(other)+start_end_fade:start+len(other)+end_end_fade] *= np.linspace(duck_factor, 1, fade_end_duration)
+    out[..., start+end_start_fade:start + len(other)+start_end_fade] *= duck_factor
     out[..., start:start + len(other)] += to_mix_in
     if clipping_strategy:
         if clipping_strategy == 'norm':
