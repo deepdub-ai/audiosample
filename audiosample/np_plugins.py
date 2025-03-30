@@ -42,6 +42,10 @@ def beep(self, duration, freq=1200.0, amplitude=1.0):
 AudioSample.register_plugin('beep', beep)
 AudioSample.register_plugin('tone', beep)
 
+def gain_in_db_to_factor(gain_in_db):
+    factor = 10 ** (gain_in_db / 20)
+    return factor
+
 def gain(self, gain_in_db, pre_normalize=False):
     """
     Apply gain to the audio sample. The gain is in decibels.
@@ -117,6 +121,87 @@ def mix(self, start, other, fade_duration=None, clipping_strategy=None):
     return AudioSample.from_numpy(out, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
 
 AudioSample.register_plugin('mix', mix)
+
+def duck_mix(self, start, other, fade_start_duration=None, fade_start_relative=0, fade_end_duration=None, fade_end_relative=0, duck_db=None, fade_mix_duration=None, clipping_strategy=None):
+    """
+    Mix two AudioSamples together. The two AudioSamples must have the same sample rate and number of channels.
+    Parameters:
+    ----------
+    start: int or float
+        The start position in samples or seconds, within the first AudioSample, where the second AudioSample will be mixed in.
+    other: AudioSample
+        The second AudioSample to mix in.
+    fade_duration: int or float or None
+        The duration in samples or seconds, within the second AudioSample, over which the mix will fade in and out. If None, no fade is applied.
+        Fading is used to avoid clicks when mixing audio samples.
+    clipping_strategy: None or str
+        The strategy to use when clipping occurs. The following strategies are available:
+        - None: Clipping is not handled.
+        - 'norm': Normalize post-mixing to avoid clipping.
+        - 'normif': Normalize post-mixing only if clipping occurs.
+        - 'warn': Warn if there is clipping
+        - 'raise': Raise an exception if there is clipping
+
+    """
+    assert fade_mix_duration is None or fade_mix_duration >= 0, "Fade in duration must be greater than or equal to 0"
+    assert isinstance(start, int) or (self.unit_sec and isinstance(start, float)), "Start must be an integer or float with unit_sec=True"
+    assert isinstance(fade_mix_duration, int) or self.unit_sec and isinstance(fade_mix_duration, float) or fade_mix_duration is None, "Fade in duration must be an integer or float with unit_sec=True or None"
+
+    if not isinstance(other, AudioSample):
+        raise ValueError("Can only overlay AudioSample with another AudioSample")
+    if self.sample_rate != other.sample_rate:
+        raise ValueError("Cannot overlay AudioSamples with different sample rates")
+    if self.channels != other.channels:
+        raise ValueError("Cannot overlay AudioSamples with different number of channels")
+    if self.unit_sec:
+        start = int(start*self.sample_rate)
+        fade_mix_duration = int((fade_mix_duration or 0) * self.sample_rate)
+        fade_start_duration = int((fade_start_duration or 0) * self.sample_rate)
+        fade_end_duration = int((fade_end_duration or 0) * self.sample_rate)
+        fade_start_relative = int((fade_start_relative or 0) * self.sample_rate)
+        fade_end_relative = int((fade_end_relative or 0) * self.sample_rate)
+    end_start_fade = max(min(fade_start_duration, len(other)), 0)
+    end_end_fade = max(min(fade_end_duration, len(other)), 1)
+    if start < 0:
+        raise ValueError("Start must be greater than or equal to 0")
+    if start + len(other) + end_end_fade > len(self):
+        n = self.as_numpy()
+        shape = [*n.shape]
+        shape[-1] = start + len(other) + end_end_fade - len(self)
+        out = np.concatenate((n, np.zeros(shape)), axis=-1)
+    else:
+        out = self.as_numpy()
+    
+    to_mix_in = other.as_numpy()
+    if fade_mix_duration:
+        fade_mix_duration = max(min(fade_mix_duration, len(other) // 2), 1)
+        to_mix_in[..., :fade_mix_duration] *= np.linspace(0, 1, fade_mix_duration)
+        to_mix_in[..., -fade_mix_duration:] *= np.linspace(1, 0, fade_mix_duration)
+    if duck_db is None:
+        duck_db = -18
+    duck_factor = gain_in_db_to_factor(duck_db)
+    if fade_start_duration:
+        out[..., start:start+end_start_fade] *= np.linspace(1, duck_factor, fade_start_duration)
+    if fade_end_duration:
+        out[..., start+len(other):start+len(other)+end_end_fade] *= np.linspace(duck_factor, 1, fade_end_duration)
+    out[..., start:start + len(other)] *= duck_factor
+    out[..., start:start + len(other)] += to_mix_in
+    if clipping_strategy:
+        if clipping_strategy == 'norm':
+            out = out / np.max(np.abs(out))
+        elif clipping_strategy == 'normif':
+            if np.max(np.abs(out)) > 1:
+                out = out / np.max(np.abs(out))
+        elif clipping_strategy == 'warn':
+            if np.max(np.abs(out)) > 1:
+                logger.warning("Clipping occurred during mixing")
+        elif clipping_strategy == 'raise':
+            if np.max(np.abs(out)) > 1:
+                raise ValueError("Clipping occurred during mixing")
+    return AudioSample.from_numpy(out, self.sample_rate, precision=self.precision, unit_sec=self.unit_sec)
+
+AudioSample.register_plugin('duck_mix', duck_mix)
+
 
 def fadein(self, duration):
     """
