@@ -3,7 +3,6 @@ import os, subprocess, io
 import pytest
 import numpy as np
 # import whisper
-from scipy.signal import correlate
 
 from audiosample import AudioSample
 
@@ -45,3 +44,15 @@ def test_pan(data_dir, small_wav_file):
     assert nb.shape[0] == 2
     assert nb[0].sum() == 0
     assert nb[1].sum() != 0
+
+
+def test_audiosample_as_input(data_dir):
+    a = AudioSample().beep(1).to_stereo()
+    print(a.channels)
+    tmp_file = data_dir / "tmp.wav"
+    a.write(tmp_file)
+    assert a.channels == 2
+    assert AudioSample(a, force_channels=1).as_numpy().shape[0] == 2
+    a = AudioSample(tmp_file)
+    assert a.channels == 2
+    assert AudioSample(a, force_channels=1).as_numpy().shape[0] == 2
