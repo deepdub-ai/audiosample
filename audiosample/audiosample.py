@@ -1093,6 +1093,7 @@ class AudioSample:
         st[-1] = self.len * self.wave_header.channel_sample_width
         st[1] = WAVE_HEADER_LEN - RIFF_HEADER_LEN + wh.data_length
         st[4] = FORMAT_HEADER_FULL_LEN
+        st[5] = 1 # always use regular PCM.
         if not self._data:
             self.read()
         return (struct.pack(WAVE_HEADER_STRUCT, *st) + self._data)
@@ -1258,7 +1259,7 @@ class AudioSample:
         """
 
         logger.info(f"Writing audio sample: {audio_path}")
-        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov", "ts", "aac", "adts"]
+        ACCEPTED_SUFFIXES = ["wav", "mp4", "m4a", "ogg", "mp3", "opus", "mov", "ts", "aac", "adts", "flac"]
         #TODO: support writing directly to file object.
         if force_out_format and not force_out_format in ACCEPTED_SUFFIXES:
             raise NotImplementedError("Not supported output format")

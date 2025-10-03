@@ -56,3 +56,13 @@ def test_audiosample_as_input(data_dir):
     a = AudioSample(tmp_file)
     assert a.channels == 2
     assert AudioSample(a, force_channels=1).as_numpy().shape[0] == 2
+    tmp_flac = data_dir / "tmp.flac"
+    AudioSample(tmp_file).write(tmp_flac, force_out_format="flac")
+    a = AudioSample(tmp_flac)
+    assert a.channels == 2
+    assert AudioSample(a, force_channels=1).as_numpy().shape[0] == 2
+    tmp_mp3 = data_dir / "tmp.mp3"
+    a.write(tmp_mp3)
+    a = AudioSample(tmp_mp3)
+    assert a.channels == 2
+    assert AudioSample(a, force_channels=1).as_numpy().shape[0] == 2

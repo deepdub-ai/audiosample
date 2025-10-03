@@ -187,7 +187,7 @@ def test_convert_file(data_dir, short_mp3_file, small_wav_file, small_opus_file)
     with AudioSample(small_mp3_file) as au:
         au.write_to_file(f"{data_dir}/small_mp3_file-conv.m4a")
         with pytest.raises(ValueError, match="supported"):
-            au.write_to_file(f"{data_dir}/small_mp3_file-conv.flac")
+            au.write_to_file(f"{data_dir}/small_mp3_file-conv.unsupported")
         au.write_to_file(f"{data_dir}/small_mp3_file-conv.ogg")
         with AudioSample(f"{data_dir}/small_mp3_file-conv.m4a") as au:
             assert au.format == 'mp4'
