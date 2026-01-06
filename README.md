@@ -72,6 +72,68 @@ out.write("noise_then_silence_then_beep.mp3")
 - **Mixing:** Easily mix multiple audio sources together. Using * sign
 - **Concat** Easily concat audio sources. Using + sign
 - **Playback:** Play audio directly in Jupyter notebooks or from the command line.
+
+### Loading Audio from HTTP/HTTPS URLs
+
+AudioSample supports loading audio directly from HTTP/HTTPS URLs with efficient byte-range requests:
+
+```python
+from audiosample import AudioSample
+
+# Basic HTTP loading
+au = AudioSample("https://example.com/audio.mp3")
+
+# With custom headers (useful for CORS-protected CDNs like CloudFront)
+au = AudioSample(
+    "https://myapp.com/audio.wav?token=...",
+    http_headers={'Origin': 'https://myapp.com'}
+)
+
+# With authentication headers
+au = AudioSample(
+    "https://api.example.com/audio.mp3",
+    http_headers={'Authorization': 'Bearer your-token'}
+)
+```
+
+#### Connection Pooling with http_session
+
+For loading multiple files from the same server, you can share a session for better performance:
+
+```python
+import requests
+from audiosample import AudioSample
+
+# Create a shared session for connection reuse
+session = requests.Session()
+
+# Load multiple files using the same connection pool
+au1 = AudioSample(url1, http_session=session)
+au2 = AudioSample(url2, http_session=session)
+au3 = AudioSample(url3, http_session=session)
+```
+
+> **Note:** `http_session` cannot be used with `thread_safe=True` because `requests.Session` is not thread-safe.
+
+#### Advanced: Using HTTPRangeFile Directly
+
+For more control over HTTP requests, you can use `HTTPRangeFile` directly:
+
+```python
+from audiosample import AudioSample, HTTPRangeFile
+
+# Create HTTPRangeFile with custom settings
+hf = HTTPRangeFile(
+    url,
+    headers={'Origin': 'https://myapp.com'},
+    block_size=64 * 1024,  # 64KB blocks
+    timeout=60.0
+)
+
+# Pass to AudioSample
+au = AudioSample(hf)
+```
+
 ## Documentation
 
 ## Bench Marks

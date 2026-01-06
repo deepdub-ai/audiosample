@@ -8,6 +8,8 @@ from typing import Optional, Union, Generator, Any, Dict, List, Tuple, BinaryIO,
 from logging import getLogger
 from types import GeneratorType
 
+from .http_file import HTTPRangeFile, REQUESTS_AVAILABLE
+
 logger = getLogger(__name__)
 
 import numpy as np
@@ -144,7 +146,8 @@ class AudioSample:
                  force_channels: Optional[int]=None, force_precision: Optional[int]=None, 
                  unit_sec: Optional[bool]=None, thread_safe: bool=False, stream_idx: int=0, 
                  force_read_sample_rate: Optional[int]=None, force_read_channels: Optional[int]=None, 
-                 force_read_precision: Optional[int]=None, force_bit_rate: Optional[int]=None) -> None:
+                 force_read_precision: Optional[int]=None, force_bit_rate: Optional[int]=None,
+                 http_headers: Optional[Dict[str, str]]=None, http_session: Optional[Any]=None) -> None:
         """
         Initialize an AudioSample object.
         Parameters
@@ -169,7 +172,18 @@ class AudioSample:
             ```
         stream_idx : int, optional
             The index of the audio stream to read. If `stream_idx` is None, the first audio stream is read. If `stream_idx` is not None, the audio stream at index `stream_idx` is read.
+        http_headers : dict, optional
+            HTTP headers to send when loading audio from HTTP/HTTPS URLs. Useful for authentication
+            or CORS (e.g., `{'Origin': 'https://example.com'}` for CloudFront URLs).
+        http_session : requests.Session, optional
+            A requests Session to use for HTTP requests. Enables connection pooling across multiple
+            AudioSample instances. Cannot be used with thread_safe=True since requests.Session is
+            not thread-safe.
         """
+        if thread_safe and http_session is not None:
+            raise ValueError("Cannot use http_session with thread_safe=True. "
+                           "requests.Session is not thread-safe.")
+        
         self._data: bytes = b''
         self.start: int = 0
         self.stream_idx: int = stream_idx
@@ -189,6 +203,8 @@ class AudioSample:
         self.force_read_channels: Optional[int] = force_read_channels
         self.force_read_precision: Optional[int] = force_read_precision
         self.force_bit_rate: Optional[int] = force_bit_rate
+        self.http_headers: Optional[Dict[str, str]] = http_headers
+        self.http_session: Optional[Any] = http_session
         self.layout_possibilities: Dict[int, str] = { 1: "mono", 2: "stereo", 3: "3.0", 4: "quad", 5: "5.0", 6: "5.1", 7: "6.1", 8: "7.1", 9: "7.1(wide)", 10: "7.1(wide-side)", 11: "7.1(top-front)", 12: "7.1(top-front-wide)", 13: "7.1(top-front-high)", 14: "7.1(top-front-high-wide)", 15: "7.1(top-front-high-wide-side", 16: "7.1(top-front-high-wide-side-rear)"}
         
         self.f: Optional[Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType]] = None
@@ -211,7 +227,9 @@ class AudioSample:
                 self.__setstate__(f.__getstate__())
             else:
                 self._open(f, force_read_format=force_read_format, 
-                       force_sample_rate=force_sample_rate, force_channels=force_channels, force_precision=force_precision, force_bit_rate=force_bit_rate)
+                       force_sample_rate=force_sample_rate, force_channels=force_channels, 
+                       force_precision=force_precision, force_bit_rate=force_bit_rate,
+                       http_headers=http_headers, http_session=http_session)
         else:
             #create empty AudioSample
             precision = force_precision if force_precision else DEFAULT_PRECISION
@@ -262,7 +280,9 @@ class AudioSample:
 
     def _open(self, f: Union[str, bytes, Path, io.BytesIO, io.FileIO, GeneratorType], 
               force_read_format: Optional[str]=None, force_sample_rate: Optional[int]=None, 
-              force_channels: Optional[int]=None, force_precision: Optional[int]=None, force_bit_rate: Optional[int]=None) -> None:
+              force_channels: Optional[int]=None, force_precision: Optional[int]=None, 
+              force_bit_rate: Optional[int]=None, http_headers: Optional[Dict[str, str]]=None,
+              http_session: Optional[Any]=None) -> None:
         self.f = f
         self.force_read_format = force_read_format
         self.force_sample_rate = force_sample_rate
@@ -278,10 +298,18 @@ class AudioSample:
 
         if isinstance(f, str):
             if f.startswith("https://") or f.startswith("http://"):
-                self._open_with_av()
-                return
-            fname = self.f
-            f = self.f = open(fname, "rb")
+                if REQUESTS_AVAILABLE:
+                    # Use HTTPRangeFile for better control over HTTP requests
+                    self._http_file = HTTPRangeFile(f, headers=http_headers, session=http_session)
+                    f = self.f = self._http_file
+                    # Fall through to normal file handling with av
+                else:
+                    # Fall back to letting PyAV handle the URL directly
+                    self._open_with_av()
+                    return
+            else:
+                fname = self.f
+                f = self.f = open(fname, "rb")
 
         if isinstance(f, io.BytesIO):
             f.seek(0, 0)
@@ -321,7 +349,7 @@ class AudioSample:
         if not (getattr(f, 'seek', None) and getattr(f, 'read', None)):
             raise ValueError(f"f must support file like behavior: {f=}")
 
-        if not isinstance(f, io.BytesIO) and not (getattr(f, 'mode', None) and "b" in f.mode):
+        if not isinstance(f, (io.BytesIO, io.IOBase)) and not (getattr(f, 'mode', None) and "b" in f.mode):
             raise ValueError(f"f must be opened in binary mode: {f=}")
 
         try:
@@ -781,10 +809,14 @@ class AudioSample:
         new.force_read_precision = self.force_read_precision
         new.thread_safe = self.thread_safe
         new.stream_idx = self.stream_idx
+        new.http_headers = self.http_headers
 
         if new.thread_safe and new.f:
             if isinstance(self.f, str) and (self.f.startswith("https://") or self.f.startswith("http://")):
                 pass
+            elif isinstance(new.f, HTTPRangeFile):
+                # Create a new HTTPRangeFile with the same URL and headers
+                new.f = HTTPRangeFile(new.f.url, headers=self.http_headers)
             elif getattr(new.f, 'name', None):
                 new.f = open(new.f.name, 'rb')
             elif getattr(new.f, 'getvalue', None):
