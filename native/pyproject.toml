@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "audiosample-rs"
+version = "0.2.0"
+description = "Optional native acceleration for the audiosample Python package."
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Nir Krakowski", email = "nir@deepdub.ai" },
+]
+
+[tool.maturin]
+features = ["python", "extension-module"]
+module-name = "audiosample_rs"

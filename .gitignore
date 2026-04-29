@@ -1,4 +1,5 @@
 .venv
+native/target/
 *.pyc
 *.pyo
 *.pyd

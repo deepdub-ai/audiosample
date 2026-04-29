@@ -1,0 +1,27 @@
+[package]
+name = "audiosample_rs"
+version = "0.2.0"
+edition = "2021"
+description = "Optional native acceleration for the audiosample Python package."
+license = "MIT"
+
+[lib]
+name = "audiosample_rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "bench"
+required-features = []
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+[features]
+default = []
+python = ["dep:pyo3"]
+extension-module = ["python", "pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["abi3-py37"], optional = true }

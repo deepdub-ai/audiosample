@@ -3,6 +3,7 @@ from .http_file import HTTPRangeFile, REQUESTS_AVAILABLE
 from . import plugins
 from . import np_plugins
 from . import av_plugins
+from . import fast_paths
 from . import play
 from . import notebook
 

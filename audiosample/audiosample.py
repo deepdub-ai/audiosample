@@ -225,6 +225,12 @@ class AudioSample:
 
             elif isinstance(f, AudioSample):
                 self.__setstate__(f.__getstate__())
+                if force_sample_rate:
+                    self.force_sample_rate = force_sample_rate
+                if force_channels:
+                    self.force_channels = force_channels
+                if force_precision:
+                    self.force_precision = force_precision
             else:
                 self._open(f, force_read_format=force_read_format, 
                        force_sample_rate=force_sample_rate, force_channels=force_channels, 
@@ -1152,6 +1158,18 @@ class AudioSample:
             if self.iterable_input_buffer:
                 if force_out_format in ['m4a', 'mp4', 'wav', 'mov']:
                     raise ValueError("Cannot encode stream input to non-streamable output format")
+            # Optional native fast path. Falls through to PyAV if not available
+            # or if this configuration isn't supported.
+            from . import fast_paths
+            if not no_encode and fast_paths.can_handle(self, force_out_format):
+                gen = fast_paths.stream(self, force_out_format)
+                if out_file is not None:
+                    for chunk in gen:
+                        out_file.write(chunk)
+                        yield chunk
+                else:
+                    yield from gen
+                return
             yield from self._read_with_av(out_file=out_file, force_out_format=force_out_format, no_encode=no_encode)
         else:
             out_buf = self.as_wav_data()
