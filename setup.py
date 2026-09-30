@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='audiosample',
-    version="2.2.12",
+    version="2.2.13",
     packages=find_packages(),
     install_requires=[
         'numpy<=2.2.0',
@@ -12,16 +12,16 @@ setup(
         #include torch dependencies
         'torch': ['torch>=1.5',],
         #everything but required for display and play.
-        'noui': ['torch>=1.5', 'av>=12.3.0,<14',],
+        'noui': ['torch>=1.5', 'av>=12.3.0',],
         #include av dependencies
-        'av': ['av>=12.3.0,<14', ],
+        'av': ['av>=12.3.0', ],
         #allow play.
         'play': ['pyaudio', ],
         #full install for development not testing.
-        'all': ['jupyter', 'IPython', 'librosa', 'matplotlib', 'torch>=1.5', 'av>=12.3.0,<14'],
+        'all': ['jupyter', 'IPython', 'librosa', 'matplotlib', 'torch>=1.5', 'av>=12.3.0'],
 
         #testing dependencies
-        'tests': ['pytest', 'jupyter', 'IPython', 'librosa', 'matplotlib', 'scipy', 'pyaudio', 'torch>=1.5', 'av>=12.3.0,<14', 'fire==0.7.0',],
+        'tests': ['pytest', 'jupyter', 'IPython', 'librosa', 'matplotlib', 'scipy', 'pyaudio', 'torch>=1.5', 'av>=12.3.0', 'fire==0.7.0',],
     },
     author='Nir Krakowski',
     author_email='nir@deepdub.ai',
