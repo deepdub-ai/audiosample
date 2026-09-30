@@ -25,3 +25,5 @@ extension-module = ["python", "pyo3/extension-module"]
 
 [dependencies]
 pyo3 = { version = "0.22", features = ["abi3-py37"], optional = true }
+claxon = "0.4"
+flacenc = { path = "vendor-flacenc" }

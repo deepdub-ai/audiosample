@@ -1,6 +1,41 @@
 [build-system]
-requires = [
-    "setuptools>=61", 
-    "wheel"
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "audiosample"
+version = "2.2.13"
+description = "AudioSample is an optimized numpy-like audio manipulation library, created for researchers, used by developers."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Nir Krakowski", email = "nir@deepdub.ai" }]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
 ]
-build-backend = "setuptools.build_meta"
+dependencies = ["numpy<=2.2.0"]
+
+[project.optional-dependencies]
+jupyter = ["jupyter", "IPython", "librosa", "matplotlib"]
+torch  = ["torch>=1.5"]
+noui   = ["torch>=1.5", "av>=12.3.0,<14"]
+av     = ["av>=12.3.0,<14"]
+play   = ["pyaudio"]
+all    = ["jupyter", "IPython", "librosa", "matplotlib", "torch>=1.5", "av>=12.3.0,<14"]
+tests  = ["pytest", "jupyter", "IPython", "librosa", "matplotlib", "scipy",
+          "pyaudio", "torch>=1.5", "av>=12.3.0,<14", "fire==0.7.0"]
+
+[project.urls]
+Source = "https://github.com/deepdub-ai/audiosample"
+
+[tool.maturin]
+manifest-path = "native/Cargo.toml"
+module-name = "audiosample._rs"
+features = ["python", "extension-module"]
+python-source = "."
+
+[tool.pytest.ini_options]
+markers = ["slow: marks tests as slow"]

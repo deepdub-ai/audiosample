@@ -3,9 +3,9 @@ requires = ["maturin>=1.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "audiosample-rs"
+name = "audiosample-rs-dev"
 version = "0.2.0"
-description = "Optional native acceleration for the audiosample Python package."
+description = "Standalone dev build of audiosample native extension. Use root pyproject.toml for production."
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
@@ -14,4 +14,4 @@ authors = [
 
 [tool.maturin]
 features = ["python", "extension-module"]
-module-name = "audiosample_rs"
+module-name = "audiosample._rs"

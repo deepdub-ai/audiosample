@@ -15,7 +15,7 @@ import os
 from typing import Generator, Iterable, Optional
 
 try:
-    import audiosample_rs as _rs  # type: ignore
+    from audiosample import _rs  # type: ignore
     HAS_RS = True
 except ImportError:
     _rs = None  # type: ignore

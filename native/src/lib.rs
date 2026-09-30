@@ -18,6 +18,8 @@ use pyo3::types::PyBytes;
 
 use std::sync::OnceLock;
 
+pub mod flac;
+
 // ============================================================================
 // Output format
 // ============================================================================
@@ -566,10 +568,40 @@ impl Resampler {
 }
 
 #[cfg(feature = "python")]
+#[pyfunction]
+fn flac_decode(py: Python<'_>, input: &[u8]) -> PyResult<(PyObject, u32, u32, u32)> {
+    let decoded = py
+        .allow_threads(|| flac::decode_flac_to_s16le(input))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let bytes = PyBytes::new_bound(py, &decoded.pcm_s16le).into();
+    Ok((bytes, decoded.sample_rate, decoded.channels, decoded.bits_per_sample))
+}
+
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (input, sample_rate, channels=1, compression_level=5))]
+fn flac_encode(
+    py: Python<'_>,
+    input: &[u8],
+    sample_rate: u32,
+    channels: u32,
+    compression_level: u8,
+) -> PyResult<PyObject> {
+    let bytes = py
+        .allow_threads(|| {
+            flac::encode_s16le_to_flac(input, sample_rate, channels, compression_level)
+        })
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(PyBytes::new_bound(py, &bytes).into())
+}
+
+#[cfg(feature = "python")]
 #[pymodule]
-fn audiosample_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_supported, m)?)?;
     m.add_function(wrap_pyfunction!(convert_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(flac_decode, m)?)?;
+    m.add_function(wrap_pyfunction!(flac_encode, m)?)?;
     m.add_class::<Resampler>()?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
