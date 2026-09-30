@@ -17,6 +17,13 @@ import numpy as np
 try:
     import av
     AV_SUPPORTED = True
+    # PyAV >= 14 renamed container flags to lowercase and exposes `container.flags` as a plain int.
+    _AV_FLAGS = av.container.core.Flags
+    AV_FAST_SEEK_FLAG = (getattr(_AV_FLAGS, "fast_seek", None) or _AV_FLAGS.FAST_SEEK).value
+    # PyAV >= 18 wheels no longer bundle libvorbis (FFmpeg's native vorbis encoder is stereo-only); fall back to
+    # libopus, which only encodes at 48kHz — PyAV resamples frames to the codec rate on encode.
+    AV_OGG_ENCODER = "libvorbis" if "libvorbis" in av.codecs_available else "libopus"
+    AV_ENCODER_FIXED_RATES = {"libopus": 48000}
 except ImportError:
     warnings.warn("AudioSample unable to support ffmpeg bindings, please install PyAv")
     AV_SUPPORTED = False
@@ -376,7 +383,7 @@ class AudioSample:
                 self.input_container = av.open(self.f, format=self.force_read_format, mode='r', metadata_errors='ignore', **kwargs)
             else:
                 self.input_container = av.open(self.f, metadata_errors='ignore')
-            self.input_container.flags |= av.container.core.Flags.FAST_SEEK
+            self.input_container.flags |= AV_FAST_SEEK_FLAG
             
         except av.error.InvalidDataError:
             raise ValueError(f"Corrupt data or header")
@@ -413,7 +420,7 @@ class AudioSample:
         elif "mulaw" in format_name:
             return "pcm_mulaw"
         elif "ogg" in format_name or "opus" in format_name:
-            return "libvorbis"
+            return AV_OGG_ENCODER
         elif "mp4" in format_name or "ipod" in format_name or "m4a" in format_name or "mov" in format_name or "m4b" in format_name or "ts" in format_name or "aac" in format_name or "adts" in format_name:
             return "aac"
         return format_name
@@ -479,9 +486,11 @@ class AudioSample:
             self.input_container.seek(seek_to, 
                                 stream=input_stream)
         if not no_encode:
-            output_stream = output_container.add_stream(self.__class__._get_codec_from_format_name(out_format), 
-                                    rate=self.force_sample_rate or self.sample_rate, layout=self.layout_possibilities[self.channels])
-            
+            codec_name = self.__class__._get_codec_from_format_name(out_format)
+            output_stream = output_container.add_stream(codec_name,
+                                    rate=AV_ENCODER_FIXED_RATES.get(codec_name) or self.force_sample_rate or self.sample_rate,
+                                    layout=self.layout_possibilities[self.channels])
+
             if self.force_bit_rate:
                 output_stream.bit_rate = self.force_bit_rate
             codec = output_stream.codec_context
@@ -567,7 +576,11 @@ class AudioSample:
             del packet
             output_container.mux(output_stream.encode(None))
         else:
-            output_stream = output_container.add_stream(template=input_stream)            
+            # PyAV >= 14 moved stream templating from add_stream(template=) to add_stream_from_template().
+            if hasattr(output_container, "add_stream_from_template"):
+                output_stream = output_container.add_stream_from_template(input_stream)
+            else:
+                output_stream = output_container.add_stream(template=input_stream)
             packet_ts_start = None
             for packet in self.input_container.demux(input_stream):
                 if packet.dts is None:
