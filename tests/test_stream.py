@@ -194,3 +194,24 @@ def test_stream_random_chunkify_to_mp3_file(tmp_path):
             yield x[...,j:i]
     out_stream = b"".join(list(AudioSample(random_chunkify_random_size(audio_data_np), force_read_sample_rate=48000).as_data_stream(force_out_format='mp3')))
     #assert np.all(AudioSample(out_stream).as_numpy()[:AudioSample(out_no_stream).as_numpy().shape[-1]] == AudioSample(out_no_stream).as_numpy())
+
+
+def test_stream_does_not_drop_chunks():
+    # a big first chunk followed by small ones used to overwrite unread input, dropping a chunk.
+    x = (np.random.default_rng(1).standard_normal(48000) * 5000).astype(np.int16)
+    pcm = x.tobytes()
+    def chunks():
+        yield pcm[:20000]
+        for i in range(20000, len(pcm), 1000):
+            yield pcm[i:i + 1000]
+    out = b"".join(AudioSample(chunks(), force_read_sample_rate=48000).as_data_stream(force_out_format='s16le'))
+    assert np.array_equal(np.frombuffer(out, np.int16), x)
+
+
+def test_stream_chunks_splitting_a_sample_lose_nothing():
+    # an odd-sized chunk used to leave a half-sample packet that the decoder rejected, dropping the end.
+    x = (np.random.default_rng(3).standard_normal(8041) * 5000).astype(np.int16)
+    pcm = x.tobytes()
+    out = b"".join(AudioSample((c for c in [pcm[:14039], pcm[14039:]]),
+                               force_read_sample_rate=48000).as_data_stream(force_out_format='s16le'))
+    assert np.array_equal(np.frombuffer(out, np.int16), x)

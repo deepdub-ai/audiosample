@@ -6,4 +6,4 @@ from . import av_plugins
 from . import play
 from . import notebook
 
-__version__ = "2.2.13"
+__version__ = "2.2.14"

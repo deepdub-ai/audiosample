@@ -35,6 +35,19 @@ except ImportError:
     warnings.warn("AudioSample unable to support torch tensors, please install torch")
     TORCH_SUPPORTED = False
 
+def _whole_sample_chunks(chunks, sample_frame_bytes):
+    """Re-chunk a byte stream so each bytes chunk holds whole sample frames; other chunk types pass through."""
+    rest = b''
+    for chunk in chunks:
+        if isinstance(chunk, bytes):
+            chunk = rest + chunk
+            cut = len(chunk) - len(chunk) % sample_frame_bytes
+            chunk, rest = chunk[:cut], chunk[cut:]
+            if not chunk:
+                continue
+        yield chunk
+    # ponytail: a trailing partial sample frame is dropped, it can't be decoded anyway.
+
 RIFF_HEADER_MAGIC = b"RIFF"
 RIFF_HEADER_LEN = 8
 JUST_WAVE_HEADER_LEN = 4
@@ -324,7 +337,9 @@ class AudioSample:
 
             if self.thread_safe:
                 raise ValueError("Cannot create thread safe AudioSample from iterable.")
-            self.iterable_input_buffer = f
+            # a chunk that splits a sample leaves an odd-sized packet at the buffer edge, which the decoder rejects.
+            sample_frame_bytes = (self.force_read_precision or DEFAULT_PRECISION) // 8 * (self.force_read_channels or DEFAULT_CHANNELS)
+            self.iterable_input_buffer = _whole_sample_chunks(f, sample_frame_bytes)
             try:
                 first_chunk = next(self.iterable_input_buffer)
             except StopIteration:
@@ -546,6 +561,8 @@ class AudioSample:
                 if self.iterable_input_buffer:
                     #save the original position of the av reader
                     av_reader_pos = self.f.tell()
+                    # append, don't write at the reader's position: that overwrites data av hasn't read yet.
+                    self.f.seek(0, 2)
                     MIN_PACKETS = 2
                     while (packet.pos + packet.size*MIN_PACKETS) > len(self.f.getvalue()):
                         try:
@@ -572,9 +589,10 @@ class AudioSample:
                     last_output_read_pos = len(out_file.getvalue())
                     if (len(chunk_out) > 0):
                         yield chunk_out
+            # flush the codec actually in use: after a restart it is no longer output_stream's.
+            output_container.mux(codec.encode(None))
             del codec
             del packet
-            output_container.mux(output_stream.encode(None))
         else:
             # PyAV >= 14 moved stream templating from add_stream(template=) to add_stream_from_template().
             if hasattr(output_container, "add_stream_from_template"):
@@ -683,8 +701,8 @@ class AudioSample:
 
             del packet
         
-        #flush packets.
-        output_container.mux(output_stream.encode(None))
+        #flush packets (from the codec in use, which may have been restarted).
+        output_container.mux(codec.encode(None))
         output_container.close()
         wav_buffer = None
         if getattr(out_file, 'getvalue', None):
